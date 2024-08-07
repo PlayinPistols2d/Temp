@@ -10,35 +10,37 @@ QString Task::name() const
     return m_name;
 }
 
-void Task::addRequirement(const QString &job, RequirementType type)
+void Task::addRequirement(const QString &job, int count, RequirementType type)
 {
-    m_requirements[job] = type;
+    m_requirements[job] = qMakePair(count, type);
 }
 
-QMap<QString, Task::RequirementType> Task::requirements() const
+QMap<QString, QPair<int, Task::RequirementType>> Task::requirements() const
 {
     return m_requirements;
 }
 
-QMap<QString, QString> Task::assignedEmployees() const
+QMap<QString, QList<QString>> Task::assignedEmployees() const
 {
     return m_assignedEmployees;
 }
 
 void Task::assignEmployee(const QString &job, const QString &employeeId)
 {
-    m_assignedEmployees[job] = employeeId;
+    if (!m_assignedEmployees[job].contains(employeeId)) {
+        m_assignedEmployees[job].append(employeeId);
+    }
 }
 
-void Task::unassignEmployee(const QString &job)
+void Task::unassignEmployee(const QString &job, const QString &employeeId)
 {
-    m_assignedEmployees.remove(job);
+    m_assignedEmployees[job].removeAll(employeeId);
 }
 
 bool Task::isComplete() const
 {
-    for (const auto &req : m_requirements.keys()) {
-        if (m_requirements[req] == Hard && !m_assignedEmployees.contains(req)) {
+    for (const QString &job : m_requirements.keys()) {
+        if (m_requirements[job].second == Hard && m_assignedEmployees[job].size() < m_requirements[job].first) {
             return false;
         }
     }
