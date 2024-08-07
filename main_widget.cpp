@@ -23,7 +23,7 @@ void MainWidget::setupTestData()
         card->setEmployeePicture(QPixmap(":/path/to/picture.png"));  // Replace with actual path
         card->setEmployeeName(QString("Employee %1").arg(i));
         card->setEmployeePosition(i % 2 == 0 ? "Developer" : "Designer");
-        ui->sidePanelLayout->addWidget(card);
+        ui->sidePanel->addEmployeeCard(card);
     }
 
     // Create some tasks
