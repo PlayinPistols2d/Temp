@@ -97,4 +97,41 @@ void TaskSlot::dropEvent(QDropEvent *event)
 {
     if (event->mimeData()->hasText() && event->mimeData()->text() == "EmployeeCard" && !m_locked) {
         EmployeeCard *employeeCard = qobject_cast<EmployeeCard*>(event->source());
-        if (employeeCard && (m_jobRequirement.isEmpty() || employeeCard->jobPosition() == m
+        if (employeeCard && (m_jobRequirement.isEmpty() || employeeCard->jobPosition() == m_jobRequirement)) {
+event->setDropAction(Qt::MoveAction);
+event->accept();
+        if (m_employeeCard) {
+            m_employeeCard->setParent(nullptr);  // Remove current card
+        }
+
+        m_employeeCard = employeeCard;
+        m_employeeCard->setParent(this);
+        ui->placeholder->layout()->addWidget(m_employeeCard);
+        m_employeeCard->showRemoveButton(true);
+        m_employeeCard->show();
+
+        connect(m_employeeCard, &EmployeeCard::removeClicked, this, [=](EmployeeCard *card) {
+            if (m_employeeCard == card) {
+                m_employeeCard->setParent(nullptr);
+                m_employeeCard = nullptr;
+                updateStyle();
+                emit card->removeClicked(card); // Emit the removeClicked signal
+            }
+        });
+
+        updateStyle();
+    } else {
+        event->ignore();
+    }
+} else {
+    event->ignore();
+}
+
+void TaskSlot::updateStyle()
+{
+if (m_employeeCard) {
+ui->placeholder->setStyleSheet(“QWidget { border: 2px solid gray; border-radius: 10px; background-color: white; }”);
+} else {
+ui->placeholder->setStyleSheet(“QWidget { border: 2px dashed gray; border-radius: 10px; background-color: white; }”);
+}
+}
