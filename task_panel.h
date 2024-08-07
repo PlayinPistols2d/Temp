@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QMap>
+#include <QScrollArea>
 #include "task.h"
 #include "task_slot.h"
 
@@ -27,7 +28,7 @@ private slots:
 private:
     Ui::TaskPanel *ui;
     QList<Task> m_tasks;
-    QMap<QString, TaskSlot*> m_taskSlots;
+    QMap<QString, QList<TaskSlot*>> m_taskSlots;
     Task *m_currentTask;
 
     void updateTaskSlots();
