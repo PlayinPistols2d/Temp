@@ -3,7 +3,7 @@
 
 #include <QWidget>
 #include "task_panel.h"
-#include "employee_card.h"
+#include "side_panel.h"
 
 namespace Ui {
 class MainWidget;
