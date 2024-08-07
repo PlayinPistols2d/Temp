@@ -63,7 +63,7 @@ void TaskPanel::updateTaskSlots()
             slot->setTaskName(m_currentTask->name());
             connect(slot, &TaskSlot::removeClicked, this, [=](EmployeeCard *card) {
                 m_currentTask->unassignEmployee(job, card->employeeID());
-                ui->sidePanel->addEmployeeCard(card);
+                emit card->removeClicked(card);
             });
             slots.append(slot);
             ui->scrollAreaLayout->addWidget(slot);
@@ -105,6 +105,4 @@ void TaskPanel::onConfirm()
             }
         }
     }
-
-    // Additional logic to handle confirmation and validation can be added here
 }
