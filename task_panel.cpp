@@ -35,7 +35,7 @@ void TaskPanel::updateTaskSlots()
     for (const QString &job : m_currentTask->assignedEmployees().keys()) {
         const QList<QString> &employees = m_currentTask->assignedEmployees()[job];
         for (int i = 0; i < employees.size(); ++i) {
-            if (i < m_taskSlots[job].size()) {
+            if (i < m_taskSlots[job].size() && !m_taskSlots[job][i]->isAssigned()) {
                 EmployeeCard *card = new EmployeeCard(this);
                 card->setEmployeeID(employees[i]);
                 card->setEmployeeName("Mock Name");  // Use actual employee name in real case
