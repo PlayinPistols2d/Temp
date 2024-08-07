@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QDrag>
 #include <QMimeData>
+#include <QPushButton>
 
 namespace Ui {
 class EmployeeCard;
@@ -24,6 +25,13 @@ public:
     void setEmployeeName(const QString &name);
     void setEmployeePosition(const QString &position);
 
+    QString employeeID() const;
+    QString jobPosition() const;
+    void showRemoveButton(bool show);
+
+signals:
+    void removeClicked(EmployeeCard *card);
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -31,6 +39,9 @@ protected:
 private:
     Ui::EmployeeCard *ui;
     QPoint dragStartPosition;
+
+private slots:
+    void onRemoveClicked();
 };
 
 #endif // EMPLOYEECARD_H
