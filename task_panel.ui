@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>TaskPanel</class>
+ <widget class="QWidget" name="TaskPanel">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QComboBox" name="comboBox_tasks"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="taskSlotsContainer">
+     <layout class="QVBoxLayout" name="taskSlotsLayout"/>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="button_confirm">
+     <property name="text">
+      <string>Confirm</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
