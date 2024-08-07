@@ -1,3 +1,8 @@
+### Step 5: Update Side Panel to Handle Removed Cards
+
+**side_panel.cpp:**
+
+```cpp
 #include "side_panel.h"
 #include "ui_side_panel.h"
 
@@ -23,6 +28,10 @@ void SidePanel::addEmployeeCard(EmployeeCard *card)
     m_employeeCards.append(card);
     ui->scrollAreaLayout->addWidget(card);
     card->show();
+    connect(card, &EmployeeCard::removeClicked, this, [=](EmployeeCard *card) {
+        removeEmployeeCard(card);
+        addEmployeeCard(card);
+    });
 }
 
 void SidePanel::removeEmployeeCard(EmployeeCard *card)
