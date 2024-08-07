@@ -12,9 +12,7 @@
   </property>
   <layout class="QHBoxLayout" name="horizontalLayout">
    <item>
-    <widget class="QWidget" name="sidePanel">
-     <layout class="QVBoxLayout" name="sidePanelLayout"/>
-    </widget>
+    <widget class="SidePanel" name="sidePanel"/>
    </item>
    <item>
     <widget class="TaskPanel" name="taskPanel"/>
