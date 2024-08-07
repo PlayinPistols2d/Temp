@@ -1,8 +1,4 @@
-### Step 5: Update Side Panel to Handle Removed Cards
 
-**side_panel.cpp:**
-
-```cpp
 #include "side_panel.h"
 #include "ui_side_panel.h"
 
