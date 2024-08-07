@@ -15,8 +15,13 @@
     <widget class="QComboBox" name="comboBox_tasks"/>
    </item>
    <item>
-    <widget class="QWidget" name="taskSlotsContainer">
-     <layout class="QVBoxLayout" name="taskSlotsLayout"/>
+    <widget class="QScrollArea" name="scrollArea">
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
+     <widget class="QWidget" name="scrollAreaWidgetContents">
+      <layout class="QVBoxLayout" name="scrollAreaLayout"/>
+     </widget>
     </widget>
    </item>
    <item>
