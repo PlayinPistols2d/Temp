@@ -17,7 +17,7 @@ MainWidget::~MainWidget()
 void MainWidget::setupTestData()
 {
     // Create some employee cards
-    for (int i = 1; i <= 5; ++i) {
+    for (int i = 1; i <= 10; ++i) {
         EmployeeCard *card = new EmployeeCard(this);
         card->setEmployeeID(QString("ID: %1").arg(i));
         card->setEmployeePicture(QPixmap(":/path/to/picture.png"));  // Replace with actual path
@@ -29,11 +29,11 @@ void MainWidget::setupTestData()
     // Create some tasks
     QList<Task> tasks;
     Task task1("Task 1");
-    task1.addRequirement("Developer", Task::Hard);
-    task1.addRequirement("Designer", Task::Soft);
+    task1.addRequirement("Developer", 3, Task::Hard);
+    task1.addRequirement("Designer", 2, Task::Soft);
 
     Task task2("Task 2");
-    task2.addRequirement("Designer", Task::Hard);
+    task2.addRequirement("Designer", 2, Task::Hard);
 
     tasks.append(task1);
     tasks.append(task2);
