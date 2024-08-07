@@ -5,6 +5,7 @@
 #include <QMap>
 #include <QPair>
 #include <QList>
+#include "employee_card.h"
 
 class Task
 {
@@ -17,16 +18,16 @@ public:
     void addRequirement(const QString &job, int count, RequirementType type);
 
     QMap<QString, QPair<int, RequirementType>> requirements() const;
-    QMap<QString, QList<QString>> assignedEmployees() const;
+    QMap<QString, QList<EmployeeCard*>> assignedEmployees() const;
 
-    void assignEmployee(const QString &job, const QString &employeeId);
-    void unassignEmployee(const QString &job, const QString &employeeId);
+    void assignEmployee(const QString &job, EmployeeCard *employee);
+    void unassignEmployee(const QString &job, EmployeeCard *employee);
     bool isComplete() const;
 
 private:
     QString m_name;
     QMap<QString, QPair<int, RequirementType>> m_requirements; // job -> (count, type)
-    QMap<QString, QList<QString>> m_assignedEmployees; // job -> list of employeeIds
+    QMap<QString, QList<EmployeeCard*>> m_assignedEmployees; // job -> list of EmployeeCard*
 };
 
 #endif // TASK_H
