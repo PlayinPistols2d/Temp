@@ -23,8 +23,11 @@ public:
 
     void setJobRequirement(const QString &job);
     QString jobRequirement() const;
+    void setTaskName(const QString &taskName);
     void lockSlot();
     void unlockSlot();
+    void assignEmployeeCard(EmployeeCard *card);
+    EmployeeCard* assignedEmployeeCard() const;
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
