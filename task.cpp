@@ -20,21 +20,21 @@ QMap<QString, QPair<int, Task::RequirementType>> Task::requirements() const
     return m_requirements;
 }
 
-QMap<QString, QList<QString>> Task::assignedEmployees() const
+QMap<QString, QList<EmployeeCard*>> Task::assignedEmployees() const
 {
     return m_assignedEmployees;
 }
 
-void Task::assignEmployee(const QString &job, const QString &employeeId)
+void Task::assignEmployee(const QString &job, EmployeeCard *employee)
 {
-    if (!m_assignedEmployees[job].contains(employeeId)) {
-        m_assignedEmployees[job].append(employeeId);
+    if (!m_assignedEmployees[job].contains(employee)) {
+        m_assignedEmployees[job].append(employee);
     }
 }
 
-void Task::unassignEmployee(const QString &job, const QString &employeeId)
+void Task::unassignEmployee(const QString &job, EmployeeCard *employee)
 {
-    m_assignedEmployees[job].removeAll(employeeId);
+    m_assignedEmployees[job].removeAll(employee);
 }
 
 bool Task::isComplete() const
