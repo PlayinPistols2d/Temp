@@ -10,14 +10,41 @@
     <height>300</height>
    </rect>
   </property>
-  <property name="styleSheet">
-   <string notr="true">QWidget {
-    border: 2px dashed gray;
-    border-radius: 10px;
-    background-color: white;
-   }</string>
-  </property>
-  <layout class="QVBoxLayout" name="verticalLayout"/>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QLabel" name="label_taskName">
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+     <property name="text">
+      <string>Task Name</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="placeholder">
+     <property name="styleSheet">
+      <string notr="true">QWidget {
+       border: 2px dashed gray;
+       border-radius: 10px;
+       background-color: white;
+      }</string>
+     </property>
+     <layout class="QVBoxLayout" name="placeholderLayout">
+      <item>
+       <widget class="QLabel" name="label_jobRequirement">
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+        <property name="text">
+         <string>Required Job</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>
