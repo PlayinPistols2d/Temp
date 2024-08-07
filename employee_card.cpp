@@ -6,6 +6,7 @@ EmployeeCard::EmployeeCard(QWidget *parent) :
     ui(new Ui::EmployeeCard)
 {
     ui->setupUi(this);
+    connect(ui->button_remove, &QPushButton::clicked, this, &EmployeeCard::onRemoveClicked);
 }
 
 EmployeeCard::~EmployeeCard()
@@ -33,6 +34,21 @@ void EmployeeCard::setEmployeePosition(const QString &position)
     ui->label_position->setText(position);
 }
 
+QString EmployeeCard::employeeID() const
+{
+    return ui->label_id->text();
+}
+
+QString EmployeeCard::jobPosition() const
+{
+    return ui->label_position->text();
+}
+
+void EmployeeCard::showRemoveButton(bool show)
+{
+    ui->button_remove->setVisible(show);
+}
+
 void EmployeeCard::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
@@ -53,5 +69,16 @@ void EmployeeCard::mouseMoveEvent(QMouseEvent *event)
 
     mimeData->setText("EmployeeCard");
     drag->setMimeData(mimeData);
+
+    QPixmap pixmap = this->grab();
+    mimeData->setImageData(pixmap);
+    drag->setPixmap(pixmap);
+    drag->setHotSpot(event->pos()); // Set cursor in the middle of the card
+
     drag->exec(Qt::MoveAction);
+}
+
+void EmployeeCard::onRemoveClicked()
+{
+    emit removeClicked(this);
 }
