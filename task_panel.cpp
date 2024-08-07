@@ -64,6 +64,20 @@ void TaskPanel::updateTaskSlots()
         m_taskSlots[job] = slot;
         ui->taskSlotsLayout->addWidget(slot);
     }
+
+    for (const auto &job : m_currentTask->assignedEmployees().keys()) {
+        if (!m_taskSlots.contains(job)) {
+            TaskSlot *slot = new TaskSlot(this);
+            slot->setJobRequirement(job);
+            EmployeeCard *card = new EmployeeCard(this);
+            card->setEmployeeID(m_currentTask->assignedEmployees()[job]);
+            card->setEmployeeName("Mock Name");  // Use actual employee name in real case
+            card->setEmployeePosition(job);
+            slot->assignEmployeeCard(card);
+            m_taskSlots[job] = slot;
+            ui->taskSlotsLayout->addWidget(slot);
+        }
+    }
 }
 
 void TaskPanel::onConfirm()
