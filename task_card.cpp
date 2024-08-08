@@ -127,16 +127,17 @@ void TaskCard::updateEmployeeCounts()
 
 void TaskCard::updateRequirementsTree()
 {
-    ui->treeWidget_hardRequirements->clear();
-    ui->treeWidget_softRequirements->clear();
+    ui->treeWidget_requirements->clear();
 
-    QTreeWidgetItem *hardRoot = new QTreeWidgetItem(ui->treeWidget_hardRequirements);
+    QTreeWidgetItem *requirementsRoot = new QTreeWidgetItem(ui->treeWidget_requirements);
+    requirementsRoot->setText(0, "Requirements");
+    ui->treeWidget_requirements->addTopLevelItem(requirementsRoot);
+
+    QTreeWidgetItem *hardRoot = new QTreeWidgetItem(requirementsRoot);
     hardRoot->setText(0, "Hard Requirements");
-    ui->treeWidget_hardRequirements->addTopLevelItem(hardRoot);
 
-    QTreeWidgetItem *softRoot = new QTreeWidgetItem(ui->treeWidget_softRequirements);
+    QTreeWidgetItem *softRoot = new QTreeWidgetItem(requirementsRoot);
     softRoot->setText(0, "Soft Requirements");
-    ui->treeWidget_softRequirements->addTopLevelItem(softRoot);
 
     std::function<void(Task*, QTreeWidgetItem*, QTreeWidgetItem*)> populateRequirements = [&](Task *task, QTreeWidgetItem *hardParent, QTreeWidgetItem *softParent) {
         for (const QString &job : task->requirements().keys()) {
@@ -163,6 +164,5 @@ void TaskCard::updateRequirementsTree()
 
     populateRequirements(m_task, hardRoot, softRoot);
 
-    ui->treeWidget_hardRequirements->expandAll();
-    ui->treeWidget_softRequirements->expandAll();
+    ui->treeWidget_requirements->expandAll();
 }
