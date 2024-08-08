@@ -139,30 +139,42 @@ void TaskCard::updateRequirementsTree()
     QTreeWidgetItem *softRoot = new QTreeWidgetItem(requirementsRoot);
     softRoot->setText(0, "Soft Requirements");
 
-    std::function<void(Task*, QTreeWidgetItem*, QTreeWidgetItem*)> populateRequirements = [&](Task *task, QTreeWidgetItem *hardParent, QTreeWidgetItem *softParent) {
+    QMap<QString, int> hardRequirements;
+    QMap<QString, int> softRequirements;
+
+    std::function<void(Task*)> populateRequirements = [&](Task *task) {
         for (const QString &job : task->requirements().keys()) {
             int hard = task->requirements()[job].first;
             int soft = task->assignedEmployees()[job].size() - hard;
 
             if (hard > 0) {
-                QTreeWidgetItem *hardItem = new QTreeWidgetItem(hardParent);
-                hardItem->setText(0, job + ": " + QString::number(hard));
-                hardParent->addChild(hardItem);
+                hardRequirements[job] += hard;
             }
 
             if (soft > 0) {
-                QTreeWidgetItem *softItem = new QTreeWidgetItem(softParent);
-                softItem->setText(0, job + ": " + QString::number(soft));
-                softParent->addChild(softItem);
+                softRequirements[job] += soft;
             }
         }
 
         for (Task *childTask : task->children()) {
-            populateRequirements(childTask, hardParent, softParent);
+            populateRequirements(childTask);
         }
     };
 
-    populateRequirements(m_task, hardRoot, softRoot);
+    populateRequirements(m_task);
+
+    for (const QString &job : hardRequirements.keys()) {
+        QTreeWidgetItem *hardItem = new QTreeWidgetItem(hardRoot);
+        hardItem->setText(0, job + ": " + QString::number(hardRequirements[job]));
+    }
+
+    for (const QString &job : softRequirements.keys()) {
+        QTreeWidgetItem *softItem = new QTreeWidgetItem(softRoot);
+        softItem->setText(0, job + ": " + QString::number(softRequirements[job]));
+    }
+
+    hardRoot->setText(0, "Hard Requirements (" + QString::number(hardRequirements.values().size()) + ")");
+    softRoot->setText(0, "Soft Requirements (" + QString::number(softRequirements.values().size()) + ")");
 
     ui->treeWidget_requirements->expandAll();
 }
