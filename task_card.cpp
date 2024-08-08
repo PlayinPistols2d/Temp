@@ -8,9 +8,9 @@ TaskCard::TaskCard(Task *task, QWidget *parent) :
 {
     ui->setupUi(this);
     setAcceptDrops(true);
-    ui->label_taskName->setText(task->name());
     updateTree();
     updateEmployeeCounts();
+    updateRequirementsTree();
 }
 
 TaskCard::~TaskCard()
@@ -74,6 +74,7 @@ void TaskCard::dropEvent(QDropEvent *event)
             m_task->assignEmployee(employeeCard->jobPosition(), employeeCard);
             updateTree();
             updateEmployeeCounts();
+            updateRequirementsTree();
             event->acceptProposedAction();
         } else {
             event->ignore();
@@ -88,13 +89,6 @@ void TaskCard::populateTree(Task *task, QTreeWidgetItem *parentItem)
     QTreeWidgetItem *taskItem = new QTreeWidgetItem(parentItem);
     taskItem->setText(0, task->name());
     parentItem->addChild(taskItem);
-
-    for (const QString &job : task->requirements().keys()) {
-        QTreeWidgetItem *jobItem = new QTreeWidgetItem(taskItem);
-        jobItem->setText(0, job + " (Hard: " + QString::number(task->requirements()[job].first) + 
-                         ", Soft: " + QString::number(task->assignedEmployees()[job].size() - task->requirements()[job].first) + ")");
-        taskItem->addChild(jobItem);
-    }
 
     for (Task *childTask : task->children()) {
         populateTree(childTask, taskItem);
@@ -129,4 +123,46 @@ void TaskCard::updateEmployeeCounts()
 
     ui->label_minEmployees->setText("Required Min: " + QString::number(hardCount) + " employees");
     ui->label_maxEmployees->setText("Required Max: " + QString::number(totalCount) + " employees");
+}
+
+void TaskCard::updateRequirementsTree()
+{
+    ui->treeWidget_hardRequirements->clear();
+    ui->treeWidget_softRequirements->clear();
+
+    QTreeWidgetItem *hardRoot = new QTreeWidgetItem(ui->treeWidget_hardRequirements);
+    hardRoot->setText(0, "Hard Requirements");
+    ui->treeWidget_hardRequirements->addTopLevelItem(hardRoot);
+
+    QTreeWidgetItem *softRoot = new QTreeWidgetItem(ui->treeWidget_softRequirements);
+    softRoot->setText(0, "Soft Requirements");
+    ui->treeWidget_softRequirements->addTopLevelItem(softRoot);
+
+    std::function<void(Task*, QTreeWidgetItem*, QTreeWidgetItem*)> populateRequirements = [&](Task *task, QTreeWidgetItem *hardParent, QTreeWidgetItem *softParent) {
+        for (const QString &job : task->requirements().keys()) {
+            int hard = task->requirements()[job].first;
+            int soft = task->assignedEmployees()[job].size() - hard;
+
+            if (hard > 0) {
+                QTreeWidgetItem *hardItem = new QTreeWidgetItem(hardParent);
+                hardItem->setText(0, job + ": " + QString::number(hard));
+                hardParent->addChild(hardItem);
+            }
+
+            if (soft > 0) {
+                QTreeWidgetItem *softItem = new QTreeWidgetItem(softParent);
+                softItem->setText(0, job + ": " + QString::number(soft));
+                softParent->addChild(softItem);
+            }
+        }
+
+        for (Task *childTask : task->children()) {
+            populateRequirements(childTask, hardParent, softParent);
+        }
+    };
+
+    populateRequirements(m_task, hardRoot, softRoot);
+
+    ui->treeWidget_hardRequirements->expandAll();
+    ui->treeWidget_softRequirements->expandAll();
 }
