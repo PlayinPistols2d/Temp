@@ -33,6 +33,7 @@ private:
     void populateTree(Task *task, QTreeWidgetItem *parentItem);
     void updateTree();
     void updateEmployeeCounts();
+    void updateRequirementsTree();
 };
 
 #endif // TASKCARD_H
