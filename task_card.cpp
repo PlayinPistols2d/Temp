@@ -10,6 +10,7 @@ TaskCard::TaskCard(Task *task, QWidget *parent) :
     setAcceptDrops(true);
     ui->label_taskName->setText(task->name());
     updateTree();
+    updateEmployeeCounts();
 }
 
 TaskCard::~TaskCard()
@@ -72,6 +73,7 @@ void TaskCard::dropEvent(QDropEvent *event)
             // Add employee to the task
             m_task->assignEmployee(employeeCard->jobPosition(), employeeCard);
             updateTree();
+            updateEmployeeCounts();
             event->acceptProposedAction();
         } else {
             event->ignore();
@@ -104,4 +106,27 @@ void TaskCard::updateTree()
     ui->treeWidget_tasks->clear();
     populateTree(m_task, ui->treeWidget_tasks->invisibleRootItem());
     ui->treeWidget_tasks->expandAll();
+}
+
+void TaskCard::updateEmployeeCounts()
+{
+    int hardCount = 0;
+    int totalCount = 0;
+
+    std::function<void(Task*)> calculateCounts = [&](Task *task) {
+        for (const QString &job : task->requirements().keys()) {
+            int hard = task->requirements()[job].first;
+            int soft = task->assignedEmployees()[job].size() - hard;
+            hardCount += hard;
+            totalCount += (hard + soft);
+        }
+        for (Task *childTask : task->children()) {
+            calculateCounts(childTask);
+        }
+    };
+
+    calculateCounts(m_task);
+
+    ui->label_minEmployees->setText("Required Min: " + QString::number(hardCount) + " employees");
+    ui->label_maxEmployees->setText("Required Max: " + QString::number(totalCount) + " employees");
 }
