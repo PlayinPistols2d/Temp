@@ -35,6 +35,26 @@
      </header>
     </widget>
    </item>
+   <item>
+    <widget class="QLabel" name="label_minEmployees">
+     <property name="alignment">
+      <set>Qt::AlignLeft</set>
+     </property>
+     <property name="text">
+      <string>Required Min: 0 employees</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="label_maxEmployees">
+     <property name="alignment">
+      <set>Qt::AlignLeft</set>
+     </property>
+     <property name="text">
+      <string>Required Max: 0 employees</string>
+     </property>
+    </widget>
+   </item>
   </layout>
  </widget>
  <resources/>
