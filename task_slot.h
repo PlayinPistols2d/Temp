@@ -24,10 +24,14 @@ public:
     void setJobRequirement(const QString &job);
     QString jobRequirement() const;
     void setTaskName(const QString &taskName);
+    void setEmployeeCapacity(int hardCount, int softCount);
+    int hardEmployeeCount() const;
+    int softEmployeeCount() const;
     void lockSlot();
     void unlockSlot();
     void assignEmployeeCard(EmployeeCard *card);
     EmployeeCard* assignedEmployeeCard() const;
+    QList<EmployeeCard*> assignedEmployeeCards() const;
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -39,6 +43,9 @@ private:
     QString m_jobRequirement;
     bool m_locked;
     EmployeeCard *m_employeeCard;
+    QList<EmployeeCard*> m_employeeCards;
+    int m_hardCount;
+    int m_softCount;
 
     void updateStyle();
 };
