@@ -15,6 +15,11 @@ void Task::addRequirement(const QString &job, int count, RequirementType type)
     m_requirements[job] = qMakePair(count, type);
 }
 
+void Task::addChild(Task *child)
+{
+    m_children.append(child);
+}
+
 QMap<QString, QPair<int, Task::RequirementType>> Task::requirements() const
 {
     return m_requirements;
@@ -23,6 +28,11 @@ QMap<QString, QPair<int, Task::RequirementType>> Task::requirements() const
 QMap<QString, QList<EmployeeCard*>> Task::assignedEmployees() const
 {
     return m_assignedEmployees;
+}
+
+QList<Task*> Task::children() const
+{
+    return m_children;
 }
 
 void Task::assignEmployee(const QString &job, EmployeeCard *employee)
