@@ -5,7 +5,9 @@ TaskSlot::TaskSlot(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::TaskSlot),
     m_locked(false),
-    m_employeeCard(nullptr)
+    m_employeeCard(nullptr),
+    m_hardCount(0),
+    m_softCount(0)
 {
     ui->setupUi(this);
     setAcceptDrops(true);
@@ -34,6 +36,22 @@ void TaskSlot::setTaskName(const QString &taskName)
     ui->label_taskName->setText(taskName);
 }
 
+void TaskSlot::setEmployeeCapacity(int hardCount, int softCount)
+{
+    m_hardCount = hardCount;
+    m_softCount = softCount;
+}
+
+int TaskSlot::hardEmployeeCount() const
+{
+    return m_hardCount;
+}
+
+int TaskSlot::softEmployeeCount() const
+{
+    return m_softCount;
+}
+
 void TaskSlot::lockSlot()
 {
     m_locked = true;
@@ -46,29 +64,29 @@ void TaskSlot::unlockSlot()
 
 void TaskSlot::assignEmployeeCard(EmployeeCard *card)
 {
-    if (m_employeeCard) {
-        m_employeeCard->setParent(nullptr);  // Remove current card
-    }
-
-    m_employeeCard = card;
-    m_employeeCard->setParent(this);
-    m_employeeCard->showRemoveButton(true);
-    ui->placeholder->layout()->addWidget(m_employeeCard);
-    m_employeeCard->show();
-    connect(m_employeeCard, &EmployeeCard::removeClicked, this, [=](EmployeeCard *card) {
-        if (m_employeeCard == card) {
-            m_employeeCard->setParent(nullptr);
-            m_employeeCard = nullptr;
+    if (m_employeeCards.size() < (m_hardCount + m_softCount)) {
+        m_employeeCards.append(card);
+        ui->placeholder->layout()->addWidget(card);
+        card->showRemoveButton(true);
+        card->show();
+        connect(card, &EmployeeCard::removeClicked, this, [=](EmployeeCard *card) {
+            m_employeeCards.removeAll(card);
+            card->setParent(nullptr);
             updateStyle();
-            emit card->removeClicked(card); // Emit the removeClicked signal
-        }
-    });
+            emit card->removeClicked(card);
+        });
+    }
     updateStyle();
 }
 
 EmployeeCard* TaskSlot::assignedEmployeeCard() const
 {
     return m_employeeCard;
+}
+
+QList<EmployeeCard*> TaskSlot::assignedEmployeeCards() const
+{
+    return m_employeeCards;
 }
 
 void TaskSlot::dragEnterEvent(QDragEnterEvent *event)
@@ -98,40 +116,22 @@ void TaskSlot::dropEvent(QDropEvent *event)
     if (event->mimeData()->hasText() && event->mimeData()->text() == "EmployeeCard" && !m_locked) {
         EmployeeCard *employeeCard = qobject_cast<EmployeeCard*>(event->source());
         if (employeeCard && (m_jobRequirement.isEmpty() || employeeCard->jobPosition() == m_jobRequirement)) {
-event->setDropAction(Qt::MoveAction);
-event->accept();
-        if (m_employeeCard) {
-            m_employeeCard->setParent(nullptr);  // Remove current card
+            event->setDropAction(Qt::MoveAction);
+            event->accept();
+            assignEmployeeCard(employeeCard);
+        } else {
+            event->ignore();
         }
-
-        m_employeeCard = employeeCard;
-        m_employeeCard->setParent(this);
-        ui->placeholder->layout()->addWidget(m_employeeCard);
-        m_employeeCard->showRemoveButton(true);
-        m_employeeCard->show();
-
-        connect(m_employeeCard, &EmployeeCard::removeClicked, this, [=](EmployeeCard *card) {
-            if (m_employeeCard == card) {
-                m_employeeCard->setParent(nullptr);
-                m_employeeCard = nullptr;
-                updateStyle();
-                emit card->removeClicked(card); // Emit the removeClicked signal
-            }
-        });
-
-        updateStyle();
     } else {
         event->ignore();
     }
-} else {
-    event->ignore();
 }
 
 void TaskSlot::updateStyle()
 {
-if (m_employeeCard) {
-ui->placeholder->setStyleSheet(“QWidget { border: 2px solid gray; border-radius: 10px; background-color: white; }”);
-} else {
-ui->placeholder->setStyleSheet(“QWidget { border: 2px dashed gray; border-radius: 10px; background-color: white; }”);
-}
+    if (!m_employeeCards.isEmpty()) {
+        ui->placeholder->setStyleSheet("QWidget { border: 2px solid gray; border-radius: 10px; background-color: white; }");
+    } else {
+        ui->placeholder->setStyleSheet("QWidget { border: 2px dashed gray; border-radius: 10px; background-color: white; }");
+    }
 }
