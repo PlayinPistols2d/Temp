@@ -1,58 +1,107 @@
-#include "task.h"
+#include "task_card.h"
+#include "ui_task_card.h"
 
-Task::Task(const QString &name)
-    : m_name(name)
+TaskCard::TaskCard(Task *task, QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::TaskCard),
+    m_task(task)
 {
+    ui->setupUi(this);
+    setAcceptDrops(true);
+    ui->label_taskName->setText(task->name());
+    updateTree();
 }
 
-QString Task::name() const
+TaskCard::~TaskCard()
 {
-    return m_name;
+    delete ui;
 }
 
-void Task::addRequirement(const QString &job, int count, RequirementType type)
+void TaskCard::mousePressEvent(QMouseEvent *event)
 {
-    m_requirements[job] = qMakePair(count, type);
+    if (event->button() == Qt::LeftButton) {
+        dragStartPosition = event->pos();
+    }
+    QWidget::mousePressEvent(event);
 }
 
-void Task::addChild(Task *child)
+void TaskCard::mouseMoveEvent(QMouseEvent *event)
 {
-    m_children.append(child);
+    if (!(event->buttons() & Qt::LeftButton))
+        return;
+    if ((event->pos() - dragStartPosition).manhattanLength() < QApplication::startDragDistance())
+        return;
+
+    QDrag *drag = new QDrag(this);
+    QMimeData *mimeData = new QMimeData;
+
+    mimeData->setText("TaskCard");
+    drag->setMimeData(mimeData);
+
+    QPixmap pixmap = this->grab();
+    mimeData->setImageData(pixmap);
+    drag->setPixmap(pixmap);
+    drag->setHotSpot(event->pos()); // Set cursor in the middle of the card
+
+    drag->exec(Qt::MoveAction);
 }
 
-QMap<QString, QPair<int, Task::RequirementType>> Task::requirements() const
+void TaskCard::dragEnterEvent(QDragEnterEvent *event)
 {
-    return m_requirements;
-}
-
-QMap<QString, QList<EmployeeCard*>> Task::assignedEmployees() const
-{
-    return m_assignedEmployees;
-}
-
-QList<Task*> Task::children() const
-{
-    return m_children;
-}
-
-void Task::assignEmployee(const QString &job, EmployeeCard *employee)
-{
-    if (!m_assignedEmployees[job].contains(employee)) {
-        m_assignedEmployees[job].append(employee);
+    if (event->mimeData()->hasText() && event->mimeData()->text() == "EmployeeCard") {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
     }
 }
 
-void Task::unassignEmployee(const QString &job, EmployeeCard *employee)
+void TaskCard::dragMoveEvent(QDragMoveEvent *event)
 {
-    m_assignedEmployees[job].removeAll(employee);
+    if (event->mimeData()->hasText() && event->mimeData()->text() == "EmployeeCard") {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
 }
 
-bool Task::isComplete() const
+void TaskCard::dropEvent(QDropEvent *event)
 {
-    for (const QString &job : m_requirements.keys()) {
-        if (m_requirements[job].second == Hard && m_assignedEmployees[job].size() < m_requirements[job].first) {
-            return false;
+    if (event->mimeData()->hasText() && event->mimeData()->text() == "EmployeeCard") {
+        EmployeeCard *employeeCard = qobject_cast<EmployeeCard*>(event->source());
+        if (employeeCard) {
+            // Add employee to the task
+            m_task->assignEmployee(employeeCard->jobPosition(), employeeCard);
+            updateTree();
+            event->acceptProposedAction();
+        } else {
+            event->ignore();
         }
+    } else {
+        event->ignore();
     }
-    return true;
+}
+
+void TaskCard::populateTree(Task *task, QTreeWidgetItem *parentItem)
+{
+    QTreeWidgetItem *taskItem = new QTreeWidgetItem(parentItem);
+    taskItem->setText(0, task->name());
+    parentItem->addChild(taskItem);
+
+    for (const QString &job : task->requirements().keys()) {
+        QTreeWidgetItem *jobItem = new QTreeWidgetItem(taskItem);
+        jobItem->setText(0, job + " (Hard: " + QString::number(task->requirements()[job].first) + 
+                         ", Soft: " + QString::number(task->assignedEmployees()[job].size() - task->requirements()[job].first) + ")");
+        taskItem->addChild(jobItem);
+    }
+
+    for (Task *childTask : task->children()) {
+        populateTree(childTask, taskItem);
+    }
+}
+
+void TaskCard::updateTree()
+{
+    ui->treeWidget_tasks->clear();
+    populateTree(m_task, ui->treeWidget_tasks->invisibleRootItem());
+    ui->treeWidget_tasks->expandAll();
 }
