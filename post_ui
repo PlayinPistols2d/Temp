@@ -1,0 +1,33 @@
+<?xml version="4.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Post</class>
+ <widget class="QWidget" name="Post">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>300</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QLabel" name="label_postNumber">
+     <property name="text">
+      <string>Post #1</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="tasksContainer">
+     <layout class="QVBoxLayout" name="tasksLayout"/>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
