@@ -22,7 +22,15 @@ Post::~Post()
 
 void Post::addTaskCard(TaskCard *taskCard)
 {
-    ui->tasksLayout->addWidget(taskCard);
+    if (!m_taskCards.contains(taskCard)) {
+        m_taskCards.append(taskCard);
+        ui->tasksLayout->addWidget(taskCard);
+    }
+}
+
+QList<TaskCard*> Post::taskCards() const
+{
+    return m_taskCards;
 }
 
 void Post::dragEnterEvent(QDragEnterEvent *event)
