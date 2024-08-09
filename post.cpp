@@ -8,11 +8,19 @@
 Post::Post(int postNumber, QWidget *parent) :
     QWidget(parent),
     ui(new Ui::Post),
-    m_postNumber(postNumber)
+    m_postNumber(postNumber),
+    m_status(AwaitingTasks)
 {
     ui->setupUi(this);
     setAcceptDrops(true);
     ui->label_postNumber->setText(QString("Post #%1").arg(postNumber));
+
+    // Initialize the confirm button but set it to invisible by default
+    confirmButton = new QPushButton("Confirm", this);
+    confirmButton->setVisible(false);
+    ui->verticalLayout->addWidget(confirmButton);
+
+    connect(confirmButton, &QPushButton::clicked, this, &Post::onConfirmButtonClicked);
 }
 
 Post::~Post()
@@ -25,12 +33,82 @@ void Post::addTaskCard(TaskCard *taskCard)
     if (!m_taskCards.contains(taskCard)) {
         m_taskCards.append(taskCard);
         ui->tasksLayout->addWidget(taskCard);
+        updateConfirmButtonVisibility();
     }
 }
 
 QList<TaskCard*> Post::taskCards() const
 {
     return m_taskCards;
+}
+
+Post::PostStatus Post::status() const
+{
+    return m_status;
+}
+
+void Post::updatePostStatus()
+{
+    bool allFinished = true;
+    bool allNotStarted = true;
+
+    for (TaskCard *taskCard : m_taskCards) {
+        if (taskCard->status() != TaskCard::Finished) {
+            allFinished = false;
+        }
+        if (taskCard->status() != TaskCard::NotStarted) {
+            allNotStarted = false;
+        }
+    }
+
+    if (allFinished) {
+        m_status = Finished;
+    } else if (allNotStarted) {
+        m_status = AwaitingTasks;
+    } else {
+        m_status = Running;
+    }
+
+    updatePostUI();
+    updateConfirmButtonVisibility();
+}
+
+void Post::onConfirmButtonClicked()
+{
+    if (m_status == AwaitingTasks || m_status == Running) {
+        for (TaskCard *taskCard : m_taskCards) {
+            if (taskCard->status() == TaskCard::NotStarted) {
+                taskCard->setStatus(TaskCard::Ongoing);
+            }
+        }
+        m_status = Running;
+    } else if (m_status == Running) {
+        for (TaskCard *taskCard : m_taskCards) {
+            taskCard->setStatus(TaskCard::Finished);
+        }
+        m_status = Finished;
+    }
+    updatePostStatus();
+}
+
+void Post::updateConfirmButtonVisibility()
+{
+    confirmButton->setVisible(!m_taskCards.isEmpty() && m_status != Finished);
+}
+
+void Post::updatePostUI()
+{
+    switch (m_status) {
+        case AwaitingTasks:
+            this->setStyleSheet("background-color: lightgray;");
+            break;
+        case Running:
+            this->setStyleSheet("background-color: yellow;");
+            break;
+        case Finished:
+            this->setStyleSheet("background-color: lightgreen;");
+            break;
+    }
 }
 
 void Post::dragEnterEvent(QDragEnterEvent *event)
@@ -59,6 +137,7 @@ void Post::dropEvent(QDropEvent *event)
             addTaskCard(taskCard);
             qDebug() << "TaskCard added to Post #" << m_postNumber;
             emit taskCardAdded(taskCard);
+            updatePostStatus();
             event->acceptProposedAction();
         } else {
             event->ignore();
