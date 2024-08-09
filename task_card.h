@@ -2,9 +2,6 @@
 #define TASKCARD_H
 
 #include <QWidget>
-#include <QTreeWidget>
-#include "task.h"
-#include "employee_card.h"
 
 namespace Ui {
 class TaskCard;
@@ -15,25 +12,20 @@ class TaskCard : public QWidget
     Q_OBJECT
 
 public:
+    enum TaskStatus { NotStarted, Ongoing, Finished };
+
     explicit TaskCard(Task *task, QWidget *parent = nullptr);
     ~TaskCard();
 
-protected:
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
-    void dragEnterEvent(QDragEnterEvent *event) override;
-    void dragMoveEvent(QDragMoveEvent *event) override;
-    void dropEvent(QDropEvent *event) override;
+    TaskStatus status() const;
+    void setStatus(TaskStatus status);
 
 private:
     Ui::TaskCard *ui;
     Task *m_task;
-    QPoint dragStartPosition;
+    TaskStatus m_status;
 
-    void populateTree(Task *task, QTreeWidgetItem *parentItem);
-    void updateTree();
-    void updateEmployeeCounts();
-    void updateRequirementsTree();
+    void updateTaskCardUI();
 };
 
 #endif // TASKCARD_H
