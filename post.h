@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QList>
+#include <QPushButton>
 #include "task_card.h"
 
 namespace Ui {
@@ -14,11 +15,18 @@ class Post : public QWidget
     Q_OBJECT
 
 public:
+    enum PostStatus { AwaitingTasks, Running, Finished };
+
     explicit Post(int postNumber, QWidget *parent = nullptr);
     ~Post();
 
     void addTaskCard(TaskCard *taskCard);
     QList<TaskCard*> taskCards() const;
+    PostStatus status() const;
+
+public slots:
+    void updatePostStatus();
+    void onConfirmButtonClicked();
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -32,6 +40,11 @@ private:
     Ui::Post *ui;
     int m_postNumber;
     QList<TaskCard*> m_taskCards;
+    PostStatus m_status;
+    QPushButton *confirmButton;
+
+    void updateConfirmButtonVisibility();
+    void updatePostUI();
 };
 
 #endif // POST_H
