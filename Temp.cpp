@@ -1,28 +1,23 @@
-QMap<QString, QPair<int, int>> TaskCard::getAllRequirements() const
+void TaskCard::setRequirementsFromMap(const QMap<QString, QPair<int, int>>& requirementsMap, 
+                                      QMap<QString, int>& hardRequirements, 
+                                      QMap<QString, int>& softRequirements) const
 {
-    QMap<QString, QPair<int, int>> requirements;
+    // Clear existing data
+    hardRequirements.clear();
+    softRequirements.clear();
 
-    std::function<void(const Task*)> collectRequirements = [&](const Task* task) {
-        for (const QString& job : task->requirements().keys()) {
-            int hardCount = task->requirements()[job].first;
-            int softCount = task->assignedEmployees()[job].size() - hardCount;
+    // Iterate through the requirements map
+    for (const QString& job : requirementsMap.keys()) {
+        const QPair<int, int>& reqPair = requirementsMap[job];
 
-            if (requirements.contains(job)) {
-                requirements[job].first += hardCount;
-                requirements[job].second += softCount;
-            } else {
-                requirements[job] = qMakePair(hardCount, softCount);
-            }
+        // Set up the hard requirements
+        if (reqPair.first > 0) {
+            hardRequirements[job] = reqPair.first;
         }
 
-        // Recursively collect requirements from child tasks
-        for (const Task* childTask : task->children()) {
-            collectRequirements(childTask);
+        // Set up the soft requirements
+        if (reqPair.second > 0) {
+            softRequirements[job] = reqPair.second;
         }
-    };
-
-    // Start collecting requirements from the main task
-    collectRequirements(m_task);
-
-    return requirements;
+    }
 }
