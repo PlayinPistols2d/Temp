@@ -2,6 +2,7 @@
 #define POST_H
 
 #include <QWidget>
+#include <QList>
 #include "task_card.h"
 
 namespace Ui {
@@ -17,6 +18,7 @@ public:
     ~Post();
 
     void addTaskCard(TaskCard *taskCard);
+    QList<TaskCard*> taskCards() const;
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -29,6 +31,7 @@ signals:
 private:
     Ui::Post *ui;
     int m_postNumber;
+    QList<TaskCard*> m_taskCards;
 };
 
 #endif // POST_H
