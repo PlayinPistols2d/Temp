@@ -146,3 +146,19 @@ void Post::dropEvent(QDropEvent *event)
         event->ignore();
     }
 }
+
+void Post::setStatus(PostStatus status)
+{
+    m_status = status;
+    updatePostUI();
+}
+
+void Post::setAssignedEmployees(const QMap<QString, QList<EmployeeCard*>>& employees)
+{
+    m_assignedEmployees = employees;
+    qDebug() << "Employees assigned to Post #" << m_postNumber << ":";
+    for (const QString& job : employees.keys()) {
+        qDebug() << job << ": " << employees[job].size() << " employees";
+    }
+}
+
