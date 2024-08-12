@@ -76,19 +76,11 @@ void Post::updatePostStatus()
 void Post::onConfirmButtonClicked()
 {
     if (m_status == AwaitingTasks || m_status == Running) {
-        for (TaskCard *taskCard : m_taskCards) {
-            if (taskCard->status() == TaskCard::NotStarted) {
-                taskCard->setStatus(TaskCard::Ongoing);
-            }
-        }
-        m_status = Running;
-    } else if (m_status == Running) {
-        for (TaskCard *taskCard : m_taskCards) {
-            taskCard->setStatus(TaskCard::Finished);
-        }
-        m_status = Finished;
+        // Create and display the AssignmentWidget modally
+        AssignmentWidget *assignmentWidget = new AssignmentWidget(this);
+        assignmentWidget->setWindowTitle("Assign Employees");
+        assignmentWidget->openModal();
     }
-    updatePostStatus();
 }
 
 void Post::updateConfirmButtonVisibility()
