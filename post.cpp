@@ -139,6 +139,33 @@ void Post::dropEvent(QDropEvent *event)
     }
 }
 
+void Post::setRequirementsFromMap(const QMap<QString, QPair<int, int>>& requirementsMap, 
+                                  QMap<QString, int>& hardRequirements, 
+                                  QMap<QString, int>& softRequirements)
+{
+    for (const QString& job : requirementsMap.keys()) {
+        const QPair<int, int>& reqPair = requirementsMap[job];
+
+        // For hard requirements: Only add if the incoming value is greater than the existing one
+        if (reqPair.first > 0) {
+            if (hardRequirements.contains(job)) {
+                hardRequirements[job] = qMax(hardRequirements[job], reqPair.first);
+            } else {
+                hardRequirements[job] = reqPair.first;
+            }
+        }
+
+        // For soft requirements: Only add if the incoming value is greater than the existing one
+        if (reqPair.second > 0) {
+            if (softRequirements.contains(job)) {
+                softRequirements[job] = qMax(softRequirements[job], reqPair.second);
+            } else {
+                softRequirements[job] = reqPair.second;
+            }
+        }
+    }
+}
+
 void Post::setStatus(PostStatus status)
 {
     m_status = status;
