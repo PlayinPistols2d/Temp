@@ -141,26 +141,38 @@ void Post::dropEvent(QDropEvent *event)
 
 void Post::setRequirementsFromMap(const QMap<QString, QPair<int, int>>& requirementsMap, 
                                   QMap<QString, int>& hardRequirements, 
-                                  QMap<QString, int>& softRequirements)
+                                  QMap<QString, int>& softRequirements,
+                                  int& hardRequirementsTotal,
+                                  int& softRequirementsTotal)
 {
+    // Initialize totals to 0
+    hardRequirementsTotal = 0;
+    softRequirementsTotal = 0;
+
     for (const QString& job : requirementsMap.keys()) {
         const QPair<int, int>& reqPair = requirementsMap[job];
 
         // For hard requirements: Only add if the incoming value is greater than the existing one
         if (reqPair.first > 0) {
             if (hardRequirements.contains(job)) {
-                hardRequirements[job] = qMax(hardRequirements[job], reqPair.first);
+                int newHardRequirement = qMax(hardRequirements[job], reqPair.first);
+                hardRequirementsTotal += newHardRequirement - hardRequirements[job];
+                hardRequirements[job] = newHardRequirement;
             } else {
                 hardRequirements[job] = reqPair.first;
+                hardRequirementsTotal += reqPair.first;
             }
         }
 
         // For soft requirements: Only add if the incoming value is greater than the existing one
         if (reqPair.second > 0) {
             if (softRequirements.contains(job)) {
-                softRequirements[job] = qMax(softRequirements[job], reqPair.second);
+                int newSoftRequirement = qMax(softRequirements[job], reqPair.second);
+                softRequirementsTotal += newSoftRequirement - softRequirements[job];
+                softRequirements[job] = newSoftRequirement;
             } else {
                 softRequirements[job] = reqPair.second;
+                softRequirementsTotal += reqPair.second;
             }
         }
     }
