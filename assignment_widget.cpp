@@ -19,6 +19,12 @@ AssignmentWidget::~AssignmentWidget()
     delete ui;
 }
 
+void AssignmentWidget::openModal()
+{
+    this->setWindowModality(Qt::ApplicationModal);
+    this->show();
+}
+
 void AssignmentWidget::setupTaskSlots()
 {
     // For each job position and requirement, create the appropriate number of task slots
@@ -74,6 +80,17 @@ void AssignmentWidget::onConfirmButtonClicked()
         qDebug() << "All slots must be filled before confirming.";
         return;
     }
+
+    // Assign the employees to the post
+    for (TaskSlot *slot : m_taskSlots) {
+        if (slot->assignedEmployeeCard()) {
+            const QString &job = slot->jobRequirement();
+            assignedEmployees[job].append(slot->assignedEmployeeCard());
+        }
+    }
+
+    // Update the post's assigned employees
+    m_post->setAssignedEmployees(assignedEmployees);
 
     // Confirm the assignment
     qDebug() << "All slots filled. Confirming assignment.";
