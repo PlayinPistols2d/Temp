@@ -4,7 +4,9 @@
 #include <QWidget>
 #include <QList>
 #include <QPushButton>
+#include <QMap>
 #include "task_card.h"
+#include "employee_card.h"
 
 namespace Ui {
 class Post;
@@ -24,6 +26,9 @@ public:
     QList<TaskCard*> taskCards() const;
     PostStatus status() const;
 
+    void setStatus(PostStatus status);
+    void setAssignedEmployees(const QMap<QString, QList<EmployeeCard*>>& employees);
+
 public slots:
     void updatePostStatus();
     void onConfirmButtonClicked();
@@ -41,10 +46,16 @@ private:
     int m_postNumber;
     QList<TaskCard*> m_taskCards;
     PostStatus m_status;
+    QMap<QString, QList<EmployeeCard*>> m_assignedEmployees;
     QPushButton *confirmButton;
+
+    QMap<QString, int> totalHardRequirements;
+    QMap<QString, int> totalSoftRequirements;
 
     void updateConfirmButtonVisibility();
     void updatePostUI();
+    void calculateRequirements();
+    void updateRequirementsDisplay();
 };
 
 #endif // POST_H
