@@ -1,4 +1,8 @@
-WITH RECURSIVE task_hierarchy AS (
+WITH params AS (
+    -- This CTE will store the post_number as a "variable"
+    SELECT :post_number AS post_number
+),
+task_hierarchy AS (
     -- First step: Select all root tasks with parent_operation_id = NULL and matching post number
     SELECT 
         o.id,
@@ -11,7 +15,8 @@ WITH RECURSIVE task_hierarchy AS (
         0 AS depth
     FROM operations o
     INNER JOIN posts p ON o.post_id = p.id
-    WHERE o.parent_operation_id IS NULL AND p.post_number = :post_number
+    INNER JOIN params ON p.post_number = params.post_number
+    WHERE o.parent_operation_id IS NULL
 
     UNION ALL
 
