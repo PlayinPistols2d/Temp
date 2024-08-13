@@ -13,7 +13,7 @@ WITH RECURSIVE task_hierarchy AS (
 
     UNION ALL
 
-    -- Recursive member: Select all child tasks, ordered by priority
+    -- Recursive member: Select all child tasks recursively, ordered by priority
     SELECT 
         o.id,
         o.name,
@@ -30,4 +30,4 @@ WITH RECURSIVE task_hierarchy AS (
 -- Final select to get all tasks in the desired order
 SELECT * 
 FROM task_hierarchy
-ORDER BY parent_operation_id NULLS FIRST, priority;
+ORDER BY COALESCE(parent_operation_id, id), priority;
