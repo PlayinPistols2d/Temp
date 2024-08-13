@@ -29,6 +29,9 @@ WITH RECURSIVE task_hierarchy AS (
 SELECT * 
 FROM task_hierarchy
 ORDER BY 
-    COALESCE(parent_operation_id, id),  -- This ensures that root tasks (NULL parent_operation_id) are ordered first
-    parent_operation_id,  -- Orders by parent to group children under their respective parents
+    CASE 
+        WHEN parent_operation_id IS NULL THEN id  -- Root tasks come first, ordered by their ID
+        ELSE parent_operation_id  -- Child tasks are grouped under their parent
+    END,
+    parent_operation_id,  -- Ensures correct grouping under each parent
     priority;  -- Orders by priority within each parent group
