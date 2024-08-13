@@ -1,20 +1,21 @@
 WITH RECURSIVE task_hierarchy AS (
-    -- Первый шаг: выбираем все корневые задачи с parent_operation_id = NULL
+    -- First step: Select all root tasks with parent_operation_id = NULL and matching post number
     SELECT 
-        id,
-        name,
-        type,
-        parent_operation_id,
-        priority,
-        post_id,
-        id AS root_id,
+        o.id,
+        o.name,
+        o.type,
+        o.parent_operation_id,
+        o.priority,
+        o.post_id,
+        o.id AS root_id,
         0 AS depth
-    FROM operations
-    WHERE parent_operation_id IS NULL AND post_id = :post_id
+    FROM operations o
+    INNER JOIN posts p ON o.post_id = p.id
+    WHERE o.parent_operation_id IS NULL AND p.post_number = :post_number
 
     UNION ALL
 
-    -- Рекурсивный шаг: выбираем все дочерние задачи, связывая их с родительскими
+    -- Recursive step: Select all child tasks, linking them to their parent tasks
     SELECT 
         o.id,
         o.name,
@@ -26,10 +27,10 @@ WITH RECURSIVE task_hierarchy AS (
         th.depth + 1 AS depth
     FROM operations o
     INNER JOIN task_hierarchy th ON o.parent_operation_id = th.id
-    WHERE o.post_id = :post_id
+    WHERE o.post_id = th.post_id
 )
 
--- Окончательный запрос для вывода задач в требуемом порядке
+-- Final query to order tasks in the required hierarchical structure
 SELECT 
     id, 
     name, 
@@ -39,6 +40,6 @@ SELECT
     post_id
 FROM task_hierarchy
 ORDER BY 
-    root_id ASC,      -- Группируем задачи по корневым задачам
-    depth ASC,        -- Сначала выводим родительские задачи, затем дочерние
-    priority ASC;     -- Упорядочиваем задачи по приоритету
+    root_id ASC,      -- Group by root task
+    depth ASC,        -- Ensure that parent tasks appear before their children
+    priority ASC;     -- Order by priority within each level
