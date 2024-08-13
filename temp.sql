@@ -1,5 +1,5 @@
 WITH RECURSIVE task_hierarchy AS (
-    -- Anchor member: Select all root tasks with no parent_operation_id (NULL) and for a specific post_id
+    -- Первый шаг: выбираем все корневые задачи с parent_operation_id = NULL
     SELECT 
         id,
         name,
@@ -14,7 +14,7 @@ WITH RECURSIVE task_hierarchy AS (
 
     UNION ALL
 
-    -- Recursive member: Select all child tasks, linking them to their parent tasks
+    -- Рекурсивный шаг: выбираем все дочерние задачи, связывая их с родительскими
     SELECT 
         o.id,
         o.name,
@@ -29,7 +29,7 @@ WITH RECURSIVE task_hierarchy AS (
     WHERE o.post_id = :post_id
 )
 
--- Final query to order tasks in the required hierarchical structure
+-- Окончательный запрос для вывода задач в требуемом порядке
 SELECT 
     id, 
     name, 
@@ -39,7 +39,6 @@ SELECT
     post_id
 FROM task_hierarchy
 ORDER BY 
-    CASE WHEN depth = 0 THEN priority ELSE th.parent_operation_id END ASC,  -- Root tasks first by priority
-    root_id ASC,  -- Group by root task
-    depth ASC,    -- Ensure that parent tasks appear before their children
-    priority ASC; -- Order by priority within each level
+    root_id ASC,      -- Группируем задачи по корневым задачам
+    depth ASC,        -- Сначала выводим родительские задачи, затем дочерние
+    priority ASC;     -- Упорядочиваем задачи по приоритету
