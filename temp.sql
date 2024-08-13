@@ -7,7 +7,8 @@ WITH RECURSIVE task_hierarchy AS (
         parent_operation_id,
         priority,
         post_id,
-        id AS root_id
+        id AS root_id,
+        0 AS depth
     FROM operations
     WHERE parent_operation_id IS NULL AND post_id = :post_id
 
@@ -21,7 +22,8 @@ WITH RECURSIVE task_hierarchy AS (
         o.parent_operation_id,
         o.priority,
         o.post_id,
-        th.root_id
+        th.root_id,
+        th.depth + 1 AS depth
     FROM operations o
     INNER JOIN task_hierarchy th ON o.parent_operation_id = th.id
     WHERE o.post_id = :post_id
@@ -31,7 +33,7 @@ WITH RECURSIVE task_hierarchy AS (
 SELECT * 
 FROM task_hierarchy
 ORDER BY 
-    root_id ASC,  -- Ensure all tasks under the same root are grouped together
-    CASE WHEN parent_operation_id IS NULL THEN 0 ELSE 1 END ASC,  -- Root tasks first
-    parent_operation_id ASC,  -- Group children under their parent
-    priority ASC;  -- Order by priority within the group
+    root_id ASC,        -- Ensure all tasks under the same root are grouped together
+    depth ASC,          -- Ensure the root task comes before its children
+    parent_operation_id ASC NULLS FIRST,  -- Group children under their parent, root tasks first
+    priority ASC;       -- Order by priority within each level
