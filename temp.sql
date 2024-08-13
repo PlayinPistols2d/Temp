@@ -25,7 +25,14 @@ WITH RECURSIVE task_hierarchy AS (
     WHERE o.post_id = :post_id
 )
 
--- Final select to get all tasks in the desired order
+-- Final select to get all tasks in the desired hierarchical order
 SELECT * 
 FROM task_hierarchy
-ORDER BY COALESCE(parent_operation_id, id), priority;
+ORDER BY 
+    COALESCE(parent_operation_id, id) ASC,  -- Group by parent
+    array_position(
+        ARRAY(
+            SELECT id FROM task_hierarchy th2 WHERE th2.parent_operation_id IS NULL ORDER BY priority
+        ), COALESCE(parent_operation_id, id)
+    ) ASC,  -- Ensure correct ordering of children under their respective parents
+    priority ASC;  -- Order children by their priority within the group
