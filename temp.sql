@@ -6,23 +6,21 @@ WITH RECURSIVE task_hierarchy AS (
         type,
         parent_operation_id,
         priority,
-        post_id,
-        1 AS level
+        post_id
     FROM operations
     WHERE parent_operation_id IS NULL AND post_id = :post_id
     ORDER BY priority
 
     UNION ALL
 
-    -- Recursive member: Select all child tasks, following the hierarchy and maintaining priority order
+    -- Recursive member: Select all child tasks, ordered by priority
     SELECT 
         o.id,
         o.name,
         o.type,
         o.parent_operation_id,
         o.priority,
-        o.post_id,
-        th.level + 1 AS level
+        o.post_id
     FROM operations o
     INNER JOIN task_hierarchy th ON o.parent_operation_id = th.id
     WHERE o.post_id = :post_id
@@ -32,4 +30,4 @@ WITH RECURSIVE task_hierarchy AS (
 -- Final select to get all tasks in the desired order
 SELECT * 
 FROM task_hierarchy
-ORDER BY level, priority;
+ORDER BY parent_operation_id NULLS FIRST, priority;
