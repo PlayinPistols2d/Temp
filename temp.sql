@@ -18,13 +18,11 @@ task_hierarchy AS (
     INNER JOIN posts p ON o.post_id = p.id
     INNER JOIN params ON p.post_number = params.post_number
     
-    -- Joining to the many-to-many table and then to the types table to get the exact type name
-    LEFT JOIN opt ON o.id = opt.operation_id
-    LEFT JOIN types t ON opt.type_id = t.id
+    -- Directly joining to the types table to get the exact type name
+    LEFT JOIN types t ON o.type_id = t.id
 
-    -- Joining to the many-to-many table and then to the groups table to get the actual group name
-    LEFT JOIN operation_user_groups oug ON o.id = oug.operation_id
-    LEFT JOIN groups g ON oug.group_id = g.id
+    -- Directly joining to the groups table to get the actual group name
+    LEFT JOIN groups g ON o.group_id = g.id
 
     WHERE o.parent_operation_id IS NULL
 
@@ -44,13 +42,11 @@ task_hierarchy AS (
     FROM operations o
     INNER JOIN task_hierarchy th ON o.parent_operation_id = th.id
     
-    -- Joining to the many-to-many table and then to the types table to get the exact type name
-    LEFT JOIN opt ON o.id = opt.operation_id
-    LEFT JOIN types t ON opt.type_id = t.id
+    -- Directly joining to the types table to get the exact type name
+    LEFT JOIN types t ON o.type_id = t.id
 
-    -- Joining to the many-to-many table and then to the groups table to get the actual group name
-    LEFT JOIN operation_user_groups oug ON o.id = oug.operation_id
-    LEFT JOIN groups g ON oug.group_id = g.id
+    -- Directly joining to the groups table to get the actual group name
+    LEFT JOIN groups g ON o.group_id = g.id
 
     WHERE o.post_id = th.post_id
 )
