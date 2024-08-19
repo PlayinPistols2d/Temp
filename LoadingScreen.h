@@ -2,11 +2,11 @@
 #define LOADINGSCREEN_H
 
 #include <QWidget>
-#include <QMovie>
+#include <QSvgRenderer>
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QGraphicsBlurEffect>
-#include <QPropertyAnimation>
+#include <QTimer>
 
 class LoadingScreen : public QWidget {
     Q_OBJECT
@@ -15,18 +15,20 @@ public:
     explicit LoadingScreen(QWidget *parent = nullptr);
     void start();
     void stop();
-    void setLoadingGif(const QString &gifPath);
+    void setLoadingSvg(const QString &svgPath);
     void setBlurLevel(int level);
     void bindToProcess(QObject *process, const char *startSignal, const char *stopSignal);
 
 private:
     QLabel *backgroundLabel;
     QLabel *loadingLabel;
-    QMovie *loadingMovie;
+    QSvgRenderer *svgRenderer;
+    QTimer *updateTimer;
     QGraphicsBlurEffect *blurEffect;
     QVBoxLayout *layout;
 
     void setupUI();
+    void updateSvg();
 
 signals:
     void loadingFinished();
