@@ -1,4 +1,5 @@
 #include "LoadingScreen.h"
+#include <QPainter>
 
 LoadingScreen::LoadingScreen(QWidget *parent) : QWidget(parent) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::CustomizeWindowHint);
@@ -13,8 +14,9 @@ void LoadingScreen::setupUI() {
     backgroundLabel->setStyleSheet("background-color: rgba(0, 0, 0, 150);"); // Semi-transparent black
 
     loadingLabel = new QLabel(this);
-    loadingMovie = new QMovie(this);
-    loadingLabel->setMovie(loadingMovie);
+    loadingLabel->setAlignment(Qt::AlignCenter);
+
+    svgRenderer = new QSvgRenderer(this);
 
     blurEffect = new QGraphicsBlurEffect(this);
     blurEffect->setBlurRadius(10);
@@ -25,21 +27,25 @@ void LoadingScreen::setupUI() {
 
     setLayout(layout);
     setFixedSize(parentWidget()->size());
+
+    // Timer to update the SVG animation (if needed)
+    updateTimer = new QTimer(this);
+    connect(updateTimer, &QTimer::timeout, this, &LoadingScreen::updateSvg);
 }
 
 void LoadingScreen::start() {
-    loadingMovie->start();
+    updateTimer->start(16); // Approximately 60 FPS for smooth animation
     show();
 }
 
 void LoadingScreen::stop() {
-    loadingMovie->stop();
+    updateTimer->stop();
     hide();
     emit loadingFinished();
 }
 
-void LoadingScreen::setLoadingGif(const QString &gifPath) {
-    loadingMovie->setFileName(gifPath);
+void LoadingScreen::setLoadingSvg(const QString &svgPath) {
+    svgRenderer->load(svgPath);
 }
 
 void LoadingScreen::setBlurLevel(int level) {
@@ -55,4 +61,13 @@ void LoadingScreen::bindToProcess(QObject *process, const char *startSignal, con
 void LoadingScreen::onProcessFinished() {
     stop();
     emit loadingFinished();
+}
+
+void LoadingScreen::updateSvg() {
+    QPixmap pixmap(loadingLabel->size());
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    svgRenderer->render(&painter);
+    loadingLabel->setPixmap(pixmap);
 }
