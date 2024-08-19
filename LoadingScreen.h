@@ -4,8 +4,8 @@
 #include <QWidget>
 #include <QGraphicsBlurEffect>
 #include <QLabel>
-#include <QVBoxLayout>
 #include <QSvgWidget>
+#include <QVBoxLayout>
 
 class LoadingScreen : public QWidget
 {
@@ -16,12 +16,16 @@ public:
     void start();
     void stop();
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 signals:
     void loadingFinished();
 
 private:
     QLabel *backgroundLabel;
     QSvgWidget *loadingSvg;
+    QGraphicsBlurEffect *blurEffect;
 };
 
 #endif // LOADINGSCREEN_H
