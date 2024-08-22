@@ -1,9 +1,5 @@
-WITH params AS (
-    -- This CTE will store the post_number as a "variable"
-    SELECT :post_number AS post_number
-),
-task_hierarchy AS (
-    -- First step: Select all root tasks with parent_operation_id = NULL and matching post number
+WITH RECURSIVE operations_hierarchy AS (
+    -- Anchor member: Select all parent operations linked to the specified shift
     SELECT 
         o.id,
         o.name,
@@ -11,24 +7,20 @@ task_hierarchy AS (
         g.name AS group_name,
         o.parent_operation_id,
         o.priority,
-        o.post_id,
+        p.number AS post_number,
         o.id AS root_id,
         0 AS depth
     FROM operations o
-    INNER JOIN posts p ON o.post_id = p.id
-    INNER JOIN params ON p.post_number = params.post_number
-    
-    -- Directly joining to the types table to get the exact type name
-    LEFT JOIN types t ON o.type_id = t.id
-
-    -- Directly joining to the groups table to get the actual group name
+    INNER JOIN shift_to_operation sto ON o.id = sto.operation_id
+    INNER JOIN types t ON o.type_id = t.id
     LEFT JOIN groups g ON o.group_id = g.id
-
-    WHERE o.parent_operation_id IS NULL
+    LEFT JOIN posts p ON o.post_id = p.id
+    WHERE sto.shift_id = :shift_id  -- Filtering by the shift ID
+      AND o.parent_operation_id IS NULL  -- Selecting only parent operations (no parent)
 
     UNION ALL
 
-    -- Recursive step: Select all child tasks, linking them to their parent tasks
+    -- Recursive member: Select all child operations linked to the parent operations
     SELECT 
         o.id,
         o.name,
@@ -36,19 +28,14 @@ task_hierarchy AS (
         g.name AS group_name,
         o.parent_operation_id,
         o.priority,
-        o.post_id,
+        p.number AS post_number,
         th.root_id,
         th.depth + 1 AS depth
     FROM operations o
-    INNER JOIN task_hierarchy th ON o.parent_operation_id = th.id
-    
-    -- Directly joining to the types table to get the exact type name
-    LEFT JOIN types t ON o.type_id = t.id
-
-    -- Directly joining to the groups table to get the actual group name
+    INNER JOIN operations_hierarchy th ON o.parent_operation_id = th.id
+    INNER JOIN types t ON o.type_id = t.id
     LEFT JOIN groups g ON o.group_id = g.id
-
-    WHERE o.post_id = th.post_id
+    LEFT JOIN posts p ON o.post_id = p.id
 )
 
 -- Final query to order tasks in the required hierarchical structure
@@ -56,12 +43,12 @@ SELECT
     id, 
     name, 
     type_name, 
-    group_name, 
     parent_operation_id, 
     priority, 
-    post_id
-FROM task_hierarchy
+    group_name, 
+    post_number
+FROM operations_hierarchy
 ORDER BY 
     root_id ASC,      -- Group by root task
-    depth ASC,        -- Ensure that parent tasks appear before their children
+    depth ASC,        -- Ensure parent tasks appear before their children
     priority ASC;     -- Order by priority within each level
