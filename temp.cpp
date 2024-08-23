@@ -1,52 +1,57 @@
-QList<TaskCard*> parseTasksToTaskCards(const QList<QList<QVariant>>& rows, QWidget *parent = nullptr)
-{
-    QList<TaskCard*> taskCards;
-    QMap<int, Task*> taskMap; // Map to store tasks by their ID
-    Task* currentParentTask = nullptr;
+#include <QWidget>
+#include <QTreeView>
+#include <QMouseEvent>
+#include <QVBoxLayout>
+#include <QDrag>
+#include <QMimeData>
 
-    for (const QList<QVariant>& row : rows) {
-        // Assuming row contains: Id, Name, Type, Group, Poid, Priority
-        int id = row[0].toInt();
-        QString name = row[1].toString();
-        QString type = row[2].toString();
-        QString group = row[3].toString();
-        QVariant poidVariant = row[4]; // Can be null
-        int priority = row[5].toInt();
+class DraggableWidget : public QWidget {
+    Q_OBJECT
 
-        int poid = poidVariant.isNull() ? -1 : poidVariant.toInt();
+public:
+    DraggableWidget(QWidget *parent = nullptr) : QWidget(parent), isDragging(false) {
+        QVBoxLayout *layout = new QVBoxLayout(this);
+        QTreeView *treeView = new QTreeView(this);
 
-        // Create the new task
-        Task* task = new Task(id, name, type, group, priority);
+        // Add the tree view to the layout
+        layout->addWidget(treeView);
 
-        if (poid == -1) {
-            // This is a root task
-            if (currentParentTask != nullptr) {
-                // If there's an existing parent task, finalize it by creating a TaskCard
-                TaskCard* taskCard = new TaskCard(currentParentTask, parent);
-                taskCards.append(taskCard);
-            }
-            // Set this as the new parent task
-            currentParentTask = task;
-        } else {
-            // This is a child task, find its parent
-            Task* parentTask = taskMap.value(poid, nullptr);
-            if (parentTask) {
-                parentTask->addChild(task);
-                task->setParent(parentTask);
-            } else {
-                qWarning() << "Parent task with ID" << poid << "not found for task" << id;
+        // Populate tree view with some data (optional)
+        // ...
+
+        setLayout(layout);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override {
+        if (event->button() == Qt::LeftButton) {
+            dragStartPosition = event->pos();
+            isDragging = true;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override {
+        if (isDragging && (event->buttons() & Qt::LeftButton)) {
+            int distance = (event->pos() - dragStartPosition).manhattanLength();
+            if (distance >= QApplication::startDragDistance()) {
+                QDrag *drag = new QDrag(this);
+                QMimeData *mimeData = new QMimeData;
+                drag->setMimeData(mimeData);
+
+                drag->exec(Qt::MoveAction);
+                isDragging = false;
             }
         }
-
-        // Store the task in the map
-        taskMap[id] = task;
+        QWidget::mouseMoveEvent(event);
     }
 
-    // After the loop, create a TaskCard for the last parent task
-    if (currentParentTask != nullptr) {
-        TaskCard* taskCard = new TaskCard(currentParentTask, parent);
-        taskCards.append(taskCard);
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        isDragging = false;
+        QWidget::mouseReleaseEvent(event);
     }
 
-    return taskCards;
-}
+private:
+    QPoint dragStartPosition;
+    bool isDragging;
+};
