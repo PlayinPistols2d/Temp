@@ -1,18 +1,5 @@
-WITH params AS (
-    -- CTE to store the post_number as a variable
-    SELECT :post_number AS post_number, :start_date AS start_date, :end_date AS end_date  -- Add start_date and end_date parameters
-),
-operations_in_shift AS (
-    -- Find all operations linked to shifts within the specified date range
-    SELECT o.id
-    FROM operations o
-    INNER JOIN shift_to_operation sto ON o.id = sto.operation_id
-    INNER JOIN shifts s ON sto.shift_id = s.id
-    INNER JOIN params ON s.start_date >= params.start_date AND s.end_date <= params.end_date
-),
-task_hierarchy AS (
-    -- First step: Select all root tasks with parent_operation_id = NULL and matching post number,
-    -- and ensure they are not in the date range specified above.
+WITH RECURSIVE operations_hierarchy AS (
+    -- Anchor member: Select all parent operations linked to the specified shift (where parent_operation_id IS NULL)
     SELECT 
         o.id,
         o.name,
@@ -21,19 +8,19 @@ task_hierarchy AS (
         o.parent_operation_id,
         o.priority,
         p.number AS post_number,
-        o.id AS root_id,
+        o.id AS root_id,  -- Use root_id to group by the root parent operation
         0 AS depth
     FROM operations o
-    INNER JOIN posts p ON o.post_id = p.id
-    INNER JOIN params ON p.number = params.post_number
-    LEFT JOIN types t ON o.type_id = t.id
+    INNER JOIN shift_to_operation sto ON o.id = sto.operation_id
+    INNER JOIN types t ON o.type_id = t.id
     LEFT JOIN groups g ON o.group_id = g.id
-    WHERE o.parent_operation_id IS NULL
-      AND o.id NOT IN (SELECT id FROM operations_in_shift)  -- Exclude operations in the specified shift date range
+    LEFT JOIN posts p ON o.post_id = p.id
+    WHERE sto.shift_id = :shift_id  -- Filtering by the shift ID
+      AND o.parent_operation_id IS NULL  -- Selecting only parent operations (no parent)
 
     UNION ALL
 
-    -- Recursive step: Select all child tasks, linking them to their parent tasks
+    -- Recursive member: Select all child operations linked to the parent operations
     SELECT 
         o.id,
         o.name,
@@ -42,14 +29,13 @@ task_hierarchy AS (
         o.parent_operation_id,
         o.priority,
         p.number AS post_number,
-        th.root_id,
-        th.depth + 1 AS depth
+        th.root_id,  -- Use the same root_id from the parent operation
+        th.depth + 1 AS depth  -- Increase depth level for child operations
     FROM operations o
-    INNER JOIN task_hierarchy th ON o.parent_operation_id = th.id
-    LEFT JOIN types t ON o.type_id = t.id
+    INNER JOIN operations_hierarchy th ON o.parent_operation_id = th.id  -- Recursively join on parent_operation_id
+    INNER JOIN types t ON o.type_id = t.id
     LEFT JOIN groups g ON o.group_id = g.id
     LEFT JOIN posts p ON o.post_id = p.id
-    WHERE o.id NOT IN (SELECT id FROM operations_in_shift)  -- Ensure child tasks are also not within the date range
 )
 
 -- Final query to order tasks in the required hierarchical structure
@@ -61,8 +47,8 @@ SELECT
     priority, 
     group_name, 
     post_number
-FROM task_hierarchy
+FROM operations_hierarchy
 ORDER BY 
-    root_id ASC,      -- Group by root task
+    root_id ASC,      -- Group by root parent task
     depth ASC,        -- Ensure that parent tasks appear before their children
     priority ASC;     -- Order by priority within each level
