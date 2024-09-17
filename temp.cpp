@@ -1,19 +1,25 @@
-QJsonObject operationToJson(const Operation* operation) {
+QJsonObject operationToFlatJson(const Operation* operation) {
     QJsonObject jsonObject;
-    jsonObject["id"] = operation->id;
-    jsonObject["name"] = operation->name;
-    jsonObject["priority"] = operation->priority;
 
-    QJsonArray childrenArray;
+    // For the current operation, create a JSON object with its properties
+    QJsonObject operationJson;
+    operationJson["id"] = operation->id;
+    operationJson["name"] = operation->name;
+    operationJson["priority"] = operation->priority;
 
-    // Iterate through the children and recursively convert each child to a JSON object
-    for (auto it = operation->children.begin(); it != operation->children.end(); ++it) {
-        childrenArray.append(operationToJson(it.value()));
+    // If the operation has a parent, include the parent's ID
+    if (operation->parent) {
+        operationJson["parent_id"] = operation->parent->id;
+    } else {
+        operationJson["parent_id"] = QJsonValue::Null;  // Null for root nodes
     }
 
-    // If the operation has children, add them to the JSON object
-    if (!childrenArray.isEmpty()) {
-        jsonObject["children"] = childrenArray;
+    // Add this operation to the main JSON object using its ID as the key
+    jsonObject[QString::number(operation->id)] = operationJson;
+
+    // Recursively process all children and add them to the main object
+    for (auto it = operation->children.begin(); it != operation->children.end(); ++it) {
+        jsonObject.insert(operationToFlatJson(it.value()));
     }
 
     return jsonObject;
@@ -22,16 +28,16 @@ QJsonObject operationToJson(const Operation* operation) {
 
 
 
-void saveOperationsToJson(const QList<Operation*>& rootOperations, const QString& filePath) {
-    QJsonArray rootArray;
+void saveOperationsToFlatJson(const QList<Operation*>& rootOperations, const QString& filePath) {
+    QJsonObject allOperations;
 
-    // Convert each root operation to JSON and add it to the root array
+    // Convert each root operation and all its descendants to a flat JSON object
     for (const Operation* rootOperation : rootOperations) {
-        rootArray.append(operationToJson(rootOperation));
+        allOperations.insert(operationToFlatJson(rootOperation));
     }
 
-    // Create a JSON document from the array of root operations
-    QJsonDocument jsonDoc(rootArray);
+    // Create a JSON document from the combined object
+    QJsonDocument jsonDoc(allOperations);
 
     // Write the JSON document to the file
     QFile file(filePath);
@@ -43,6 +49,3 @@ void saveOperationsToJson(const QList<Operation*>& rootOperations, const QString
     file.write(jsonDoc.toJson(QJsonDocument::Indented));
     file.close();
 }
-
-
-
