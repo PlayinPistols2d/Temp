@@ -1,57 +1,38 @@
-#include <QWidget>
-#include <QTreeView>
-#include <QMouseEvent>
-#include <QVBoxLayout>
-#include <QDrag>
-#include <QMimeData>
+#include <QList>
+#include <QMap>
+#include <QString>
 
-class DraggableWidget : public QWidget {
-    Q_OBJECT
+QList<Node*> parseData(const QList<QMap<QString, QVariant>> &data) {
+    QMap<int, Node*> nodeMap;  // Map to store all nodes by their ID
+    QList<Node*> rootNodes;    // Store root nodes (with no parent)
 
-public:
-    DraggableWidget(QWidget *parent = nullptr) : QWidget(parent), isDragging(false) {
-        QVBoxLayout *layout = new QVBoxLayout(this);
-        QTreeView *treeView = new QTreeView(this);
+    for (const auto& row : data) {
+        int id = row["id"].toInt();
+        QString name = row["name"].toString();
+        int parentId = row["parent_id"].toInt();  // parent_id could be NULL or -1 for root elements
+        int priority = row["priority"].toInt();
 
-        // Add the tree view to the layout
-        layout->addWidget(treeView);
+        Node* parentNode = nullptr;  // Assume null for root nodes
 
-        // Populate tree view with some data (optional)
-        // ...
-
-        setLayout(layout);
-    }
-
-protected:
-    void mousePressEvent(QMouseEvent *event) override {
-        if (event->button() == Qt::LeftButton) {
-            dragStartPosition = event->pos();
-            isDragging = true;
-        }
-        QWidget::mousePressEvent(event);
-    }
-
-    void mouseMoveEvent(QMouseEvent *event) override {
-        if (isDragging && (event->buttons() & Qt::LeftButton)) {
-            int distance = (event->pos() - dragStartPosition).manhattanLength();
-            if (distance >= QApplication::startDragDistance()) {
-                QDrag *drag = new QDrag(this);
-                QMimeData *mimeData = new QMimeData;
-                drag->setMimeData(mimeData);
-
-                drag->exec(Qt::MoveAction);
-                isDragging = false;
+        if (parentId != -1 && !row["parent_id"].isNull()) {
+            // If parentId is valid, find the parent node
+            if (nodeMap.contains(parentId)) {
+                parentNode = nodeMap[parentId];
+            } else {
+                // Handle error: parent not found (if the data is not well-formed)
+                qWarning() << "Parent ID" << parentId << "not found for node" << id;
             }
         }
-        QWidget::mouseMoveEvent(event);
+
+        // Create the node with a parent pointer
+        Node* newNode = new Node(id, name, priority, parentNode);
+        nodeMap[id] = newNode;  // Store the node in the map
+
+        if (!parentNode) {
+            // If it's a root node (no parent), store it separately
+            rootNodes.append(newNode);
+        }
     }
 
-    void mouseReleaseEvent(QMouseEvent *event) override {
-        isDragging = false;
-        QWidget::mouseReleaseEvent(event);
-    }
-
-private:
-    QPoint dragStartPosition;
-    bool isDragging;
-};
+    return rootNodes;  // Return the list of root nodes
+}
