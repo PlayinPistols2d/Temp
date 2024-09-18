@@ -1,18 +1,21 @@
 void OperationManager::addOperation(const QJsonObject& operationData) {
-    // Extract fields
-    int id = operationData.value("id").toInt(-1);
+    // Extract fields directly as int
+    if (!operationData.contains("id")) {
+        qWarning() << "Missing 'id' in operation data";
+        return;
+    }
+    int id = operationData["id"].toInt();
+
     QString name = operationData.value("name").toString();
+
     int priority = operationData.value("priority").toInt(0);
-    QJsonValue parentIdVal = operationData.value("parent_id");
 
     int parentId = -1; // Use -1 to represent null or root
-    if (!parentIdVal.isNull()) {
-        parentId = parentIdVal.toInt(-1);
-    }
-
-    if (id == -1) {
-        qWarning() << "Invalid or missing 'id' in operation data";
-        return;
+    if (operationData.contains("parent_id")) {
+        QJsonValue parentIdVal = operationData.value("parent_id");
+        if (!parentIdVal.isNull()) {
+            parentId = parentIdVal.toInt();
+        }
     }
 
     // Check if the operation already exists
@@ -22,34 +25,38 @@ void OperationManager::addOperation(const QJsonObject& operationData) {
     }
 
     // Create a new Operation instance
-    QSharedPointer<Operation> op = QSharedPointer<Operation>::create(id, name, priority, parentId);
-
-    // Add to idToOperation map
-    idToOperation.insert(id, op);
+    Operation op(id, name, priority, parentId);
 
     // Set up parent-child relationships
     if (parentId != -1) {
         if (idToOperation.contains(parentId)) {
             // Parent already exists
-            QSharedPointer<Operation> parentOp = idToOperation.value(parentId);
-            op->parent = parentOp.toWeakRef();
-            parentOp->addChild(op);
+            Operation& parentOp = idToOperation[parentId];
+            parentOp.childIds.append(id);
         } else {
             // Parent not yet available; add to waiting list
-            parentIdToChildrenWaiting.insert(parentId, op);
+            parentIdToChildrenWaiting.insert(parentId, id);
         }
     }
+
+    // Add to idToOperation map
+    idToOperation.insert(id, op);
 
     // Check if this operation is a parent of any existing children waiting for it
     if (parentIdToChildrenWaiting.contains(id)) {
         // Get all children waiting for this parent
-        QList<QSharedPointer<Operation>> waitingChildren = parentIdToChildrenWaiting.values(id);
+        QList<int> waitingChildren = parentIdToChildrenWaiting.values(id);
 
-        for (QSharedPointer<Operation>& childOp : waitingChildren) {
-            // Set parent for the child
-            childOp->parent = op.toWeakRef();
-            // Add child to this operation's children list
-            op->addChild(childOp);
+        for (int childId : waitingChildren) {
+            // Update the child operation's parentId
+            if (idToOperation.contains(childId)) {
+                Operation& childOp = idToOperation[childId];
+                childOp.parentId = id;
+                // Add childId to this operation's children list
+                idToOperation[id].childIds.append(childId);
+            } else {
+                qWarning() << "Child operation with ID" << childId << "not found in idToOperation.";
+            }
         }
 
         // Remove from the waiting list
