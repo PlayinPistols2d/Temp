@@ -1,55 +1,58 @@
-QList<Operation*> parseOperations(const QJsonArray& operationsData) {
-    QMap<int, Operation*> idToOperation; // Map from ID to Operation pointer
-    QList<Operation*> rootOperations;    // List of root operations (no parent)
+void OperationManager::addOperation(const QJsonObject& operationData) {
+    // Extract fields
+    int id = operationData.value("id").toInt(-1);
+    QString name = operationData.value("name").toString();
+    int priority = operationData.value("priority").toInt(0);
+    QJsonValue parentIdVal = operationData.value("parent_id");
 
-    // First pass: Create Operation instances
-    for (const QJsonValue& value : operationsData) {
-        if (!value.isObject()) {
-            qWarning() << "Invalid operation data, expected JSON object";
-            continue;
-        }
-        QJsonObject obj = value.toObject();
-
-        // Extract fields
-        int id = obj.value("id").toInt(-1);
-        QString name = obj.value("name").toString();
-        int priority = obj.value("priority").toInt(0);
-        QJsonValue parentIdVal = obj.value("parent_id");
-
-        int parentId = -1; // Use -1 to represent null or root
-        if (!parentIdVal.isNull()) {
-            parentId = parentIdVal.toInt(-1);
-        }
-
-        if (id == -1) {
-            qWarning() << "Invalid or missing 'id' in operation data";
-            continue;
-        }
-
-        // Create Operation instance
-        Operation* op = new Operation(id, name, priority, parentId);
-        idToOperation.insert(id, op);
+    int parentId = -1; // Use -1 to represent null or root
+    if (!parentIdVal.isNull()) {
+        parentId = parentIdVal.toInt(-1);
     }
 
-    // Second pass: Assign parents and build hierarchy
-    for (Operation* op : idToOperation) {
-        int parentId = op->parentId;
-        if (parentId == -1) {
-            // This is a root operation
-            rootOperations.append(op);
+    if (id == -1) {
+        qWarning() << "Invalid or missing 'id' in operation data";
+        return;
+    }
+
+    // Check if the operation already exists
+    if (idToOperation.contains(id)) {
+        qWarning() << "Operation with ID" << id << "already exists. Skipping.";
+        return;
+    }
+
+    // Create a new Operation instance
+    QSharedPointer<Operation> op = QSharedPointer<Operation>::create(id, name, priority, parentId);
+
+    // Add to idToOperation map
+    idToOperation.insert(id, op);
+
+    // Set up parent-child relationships
+    if (parentId != -1) {
+        if (idToOperation.contains(parentId)) {
+            // Parent already exists
+            QSharedPointer<Operation> parentOp = idToOperation.value(parentId);
+            op->parent = parentOp.toWeakRef();
+            parentOp->addChild(op);
         } else {
-            // Find parent operation
-            Operation* parentOp = idToOperation.value(parentId, nullptr);
-            if (parentOp) {
-                op->parent = parentOp;
-                parentOp->children.append(op);
-            } else {
-                qWarning() << "Parent with ID" << parentId << "not found for operation ID" << op->id;
-                // Optionally, treat this as a root operation or handle as needed
-                rootOperations.append(op);
-            }
+            // Parent not yet available; add to waiting list
+            parentIdToChildrenWaiting.insert(parentId, op);
         }
     }
 
-    return rootOperations;
+    // Check if this operation is a parent of any existing children waiting for it
+    if (parentIdToChildrenWaiting.contains(id)) {
+        // Get all children waiting for this parent
+        QList<QSharedPointer<Operation>> waitingChildren = parentIdToChildrenWaiting.values(id);
+
+        for (QSharedPointer<Operation>& childOp : waitingChildren) {
+            // Set parent for the child
+            childOp->parent = op.toWeakRef();
+            // Add child to this operation's children list
+            op->addChild(childOp);
+        }
+
+        // Remove from the waiting list
+        parentIdToChildrenWaiting.remove(id);
+    }
 }
