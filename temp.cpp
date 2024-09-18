@@ -1,45 +1,55 @@
-QJsonObject operationToJson(const Operation* operation) {
-    QJsonObject jsonObject;
+QList<Operation*> parseOperations(const QJsonArray& operationsData) {
+    QMap<int, Operation*> idToOperation; // Map from ID to Operation pointer
+    QList<Operation*> rootOperations;    // List of root operations (no parent)
 
-    // Add basic properties of the operation
-    jsonObject["id"] = operation->id;
-    jsonObject["name"] = operation->name;
-    jsonObject["priority"] = operation->priority;
+    // First pass: Create Operation instances
+    for (const QJsonValue& value : operationsData) {
+        if (!value.isObject()) {
+            qWarning() << "Invalid operation data, expected JSON object";
+            continue;
+        }
+        QJsonObject obj = value.toObject();
 
-    // If the operation has a parent, include the parent's ID
-    if (operation->parent) {
-        jsonObject["parent_id"] = operation->parent->id;
-    } else {
-        jsonObject["parent_id"] = QJsonValue::Null;  // Null for root nodes
-    }
+        // Extract fields
+        int id = obj.value("id").toInt(-1);
+        QString name = obj.value("name").toString();
+        int priority = obj.value("priority").toInt(0);
+        QJsonValue parentIdVal = obj.value("parent_id");
 
-    // Process children recursively, if any, and add them to "operations"
-    if (!operation->children.isEmpty()) {
-        QJsonArray childrenArray;
-
-        for (auto it = operation->children.begin(); it != operation->children.end(); ++it) {
-            childrenArray.append(operationToJson(it.value()));  // Recursively convert child operations
+        int parentId = -1; // Use -1 to represent null or root
+        if (!parentIdVal.isNull()) {
+            parentId = parentIdVal.toInt(-1);
         }
 
-        jsonObject["operations"] = childrenArray;  // Add the child operations as an array
+        if (id == -1) {
+            qWarning() << "Invalid or missing 'id' in operation data";
+            continue;
+        }
+
+        // Create Operation instance
+        Operation* op = new Operation(id, name, priority, parentId);
+        idToOperation.insert(id, op);
     }
 
-    return jsonObject;
-}
-
-
-
-
-QJsonObject generateOperationsJson(const QList<Operation*>& rootOperations) {
-    QJsonObject allOperationsJson;
-
-    // Loop through all root operations and convert them to JSON
-    for (const Operation* rootOperation : rootOperations) {
-        QJsonObject rootJson = operationToJson(rootOperation);
-
-        // Add each root operation as a top-level key in the final JSON object, using its ID as the key
-        allOperationsJson[QString::number(rootOperation->id)] = rootJson;
+    // Second pass: Assign parents and build hierarchy
+    for (Operation* op : idToOperation) {
+        int parentId = op->parentId;
+        if (parentId == -1) {
+            // This is a root operation
+            rootOperations.append(op);
+        } else {
+            // Find parent operation
+            Operation* parentOp = idToOperation.value(parentId, nullptr);
+            if (parentOp) {
+                op->parent = parentOp;
+                parentOp->children.append(op);
+            } else {
+                qWarning() << "Parent with ID" << parentId << "not found for operation ID" << op->id;
+                // Optionally, treat this as a root operation or handle as needed
+                rootOperations.append(op);
+            }
+        }
     }
 
-    return allOperationsJson;
+    return rootOperations;
 }
