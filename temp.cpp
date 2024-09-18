@@ -12,7 +12,7 @@ void OperationManager::addOperation(const QJsonObject& operationData) {
 
     int parentId = -1; // Use -1 to represent null or root
     if (operationData.contains("parent_id")) {
-        QJsonValue parentIdVal = operationData.value("parent_id");
+        QJsonValue parentIdVal = operationData["parent_id"];
         if (!parentIdVal.isNull()) {
             parentId = parentIdVal.toInt();
         }
@@ -25,38 +25,37 @@ void OperationManager::addOperation(const QJsonObject& operationData) {
     }
 
     // Create a new Operation instance
-    Operation op(id, name, priority, parentId);
+    Operation* op = new Operation(id, name, priority, parentId);
+
+    // Add to idToOperation map
+    idToOperation.insert(id, op);
 
     // Set up parent-child relationships
     if (parentId != -1) {
         if (idToOperation.contains(parentId)) {
             // Parent already exists
-            Operation& parentOp = idToOperation[parentId];
-            parentOp.childIds.append(id);
+            Operation* parentOp = idToOperation.value(parentId);
+            op->parent = parentOp;
+            parentOp->addChild(op);
         } else {
             // Parent not yet available; add to waiting list
-            parentIdToChildrenWaiting.insert(parentId, id);
+            parentIdToChildrenWaiting.insert(parentId, op);
         }
+    } else {
+        // This is a root operation
+        rootOperations.append(op);
     }
-
-    // Add to idToOperation map
-    idToOperation.insert(id, op);
 
     // Check if this operation is a parent of any existing children waiting for it
     if (parentIdToChildrenWaiting.contains(id)) {
         // Get all children waiting for this parent
-        QList<int> waitingChildren = parentIdToChildrenWaiting.values(id);
+        QList<Operation*> waitingChildren = parentIdToChildrenWaiting.values(id);
 
-        for (int childId : waitingChildren) {
-            // Update the child operation's parentId
-            if (idToOperation.contains(childId)) {
-                Operation& childOp = idToOperation[childId];
-                childOp.parentId = id;
-                // Add childId to this operation's children list
-                idToOperation[id].childIds.append(childId);
-            } else {
-                qWarning() << "Child operation with ID" << childId << "not found in idToOperation.";
-            }
+        for (Operation* childOp : waitingChildren) {
+            // Set parent for the child
+            childOp->parent = op;
+            // Add child to this operation's children list
+            op->addChild(childOp);
         }
 
         // Remove from the waiting list
