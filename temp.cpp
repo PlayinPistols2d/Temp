@@ -1,35 +1,47 @@
-void OperationManager::addOperation(int id, const QString& name, int priority, int parentId) {
-    // Check for duplicate IDs
-    if (findOperationById(id)) {
-        qWarning() << "Operation with ID" << id << "already exists. Skipping.";
-        return;
-    }
+QJsonObject buildJson(Operation* op) {
+    QJsonObject opJson = op->toJson(); // Use your existing function
 
-    // Create the new operation
-    Operation* op = new Operation(id, name, priority);
-
-    if (parentId == -1) {
-        // No parent, this is a root operation
-        rootOperations.insert(id, op);
-    } else {
-        // Try to find the parent in the existing tree
-        Operation* parentOp = findOperationById(parentId);
-        if (parentOp) {
-            // Parent found, assign relationships
-            op->parent = parentOp;
-            parentOp->children.insert(id, op);
-        } else {
-            // Parent not found, add to waiting list
-            waitingChildren[parentId].append(op);
+    if (!op->children.isEmpty()) {
+        QJsonArray childrenArray;
+        for (Operation* childOp : op->children) {
+            childrenArray.append(buildJson(childOp));
         }
+        opJson["children"] = childrenArray;
     }
 
-    // Check if any operations are waiting for this operation as their parent
-    if (waitingChildren.contains(id)) {
-        QList<Operation*> childrenList = waitingChildren.take(id);
-        for (Operation* childOp : childrenList) {
-            childOp->parent = op;
-            op->children.insert(childOp->id, childOp);
-        }
+    return opJson;
+}
+
+
+
+class OperationManager {
+public:
+    QMap<int, Operation*> idToOperation; // Map of operation ID to Operation*
+    QMap<int, Operation*> rootOperations; // Map of root operation ID to Operation*
+    QMap<int, QList<Operation*>> waitingChildren; // Map of parent ID to children waiting for their parent
+
+    void addOperation(int id, const QString& name, int priority, int parentId);
+    Operation* findOperationById(int id);
+    QJsonObject toJson(int number, const QString& name); // New method
+    void printOperations();
+    void deleteOperations();
+
+private:
+    void printOperation(Operation* op, int depth);
+    void deleteOperation(Operation* op);
+};
+
+// Implementation of toJson method
+QJsonObject OperationManager::toJson(int number, const QString& name) {
+    QJsonObject json;
+    json["Number"] = number;
+    json["Name"] = name;
+
+    QJsonArray operationsArray;
+    for (Operation* op : rootOperations) {
+        operationsArray.append(buildJson(op));
     }
+
+    json["Operations"] = operationsArray;
+    return json;
 }
