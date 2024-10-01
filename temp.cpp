@@ -1,47 +1,75 @@
-QJsonObject buildJson(Operation* op) {
-    QJsonObject opJson = op->toJson(); // Use your existing function
+#ifndef BARCODESCANNER_H
+#define BARCODESCANNER_H
 
-    if (!op->children.isEmpty()) {
-        QJsonArray childrenArray;
-        for (Operation* childOp : op->children) {
-            childrenArray.append(buildJson(childOp));
+#include <QObject>
+#include <QUdpSocket>
+#include <QString>
+
+class BarcodeScanner : public QObject {
+    Q_OBJECT
+
+public:
+    BarcodeScanner(const QString &serverAddress, quint16 serverPort);
+    void startReading();  // Starts reading from the input
+
+private:
+    QUdpSocket *m_udpSocket;
+    QString m_serverAddress;
+    quint16 m_serverPort;
+
+    void sendBarcode(const QString &barcode);  // Sends the barcode to the server
+};
+
+#endif // BARCODESCANNER_H
+
+
+
+
+#include "barcode_scanner.h"
+#include <QTextStream>
+#include <QHostAddress>
+#include <QDebug>
+
+BarcodeScanner::BarcodeScanner(const QString &serverAddress, quint16 serverPort)
+    : m_serverAddress(serverAddress), m_serverPort(serverPort) {
+    m_udpSocket = new QUdpSocket(this);
+}
+
+void BarcodeScanner::startReading() {
+    QTextStream input(stdin);
+    QString barcode;
+    qDebug() << "Waiting for barcode input...";
+
+    while (true) {
+        barcode = input.readLine();
+        if (!barcode.isEmpty()) {
+            sendBarcode(barcode);
         }
-        opJson["children"] = childrenArray;
     }
+}
 
-    return opJson;
+void BarcodeScanner::sendBarcode(const QString &barcode) {
+    QByteArray data = barcode.toUtf8();
+    m_udpSocket->writeDatagram(data, QHostAddress(m_serverAddress), m_serverPort);
+    qDebug() << "Barcode sent: " << barcode;
 }
 
 
 
-class OperationManager {
-public:
-    QMap<int, Operation*> idToOperation; // Map of operation ID to Operation*
-    QMap<int, Operation*> rootOperations; // Map of root operation ID to Operation*
-    QMap<int, QList<Operation*>> waitingChildren; // Map of parent ID to children waiting for their parent
 
-    void addOperation(int id, const QString& name, int priority, int parentId);
-    Operation* findOperationById(int id);
-    QJsonObject toJson(int number, const QString& name); // New method
-    void printOperations();
-    void deleteOperations();
+#include <QCoreApplication>
+#include "barcode_scanner.h"
 
-private:
-    void printOperation(Operation* op, int depth);
-    void deleteOperation(Operation* op);
-};
+int main(int argc, char *argv[]) {
+    QCoreApplication a(argc, argv);
 
-// Implementation of toJson method
-QJsonObject OperationManager::toJson(int number, const QString& name) {
-    QJsonObject json;
-    json["Number"] = number;
-    json["Name"] = name;
+    QString serverAddress = "127.0.0.1";  // Set your server IP
+    quint16 serverPort = 12345;           // Set your server port
 
-    QJsonArray operationsArray;
-    for (Operation* op : rootOperations) {
-        operationsArray.append(buildJson(op));
-    }
+    BarcodeScanner scanner(serverAddress, serverPort);
+    
+    // Start reading input from the barcode scanner
+    scanner.startReading();
 
-    json["Operations"] = operationsArray;
-    return json;
+    return a.exec();
 }
