@@ -1,13 +1,14 @@
 // BarcodeListener.h
 
-#ifndef BARCODEREADER_H
-#define BARCODEREADER_H
+#ifndef BARCODELISTENER_H
+#define BARCODELISTENER_H
 
 #include <QObject>
 #include <QSerialPort>
 #include <QUdpSocket>
 #include <QByteArray>
 #include <QHostAddress>
+#include <QTimer>
 
 class BarcodeListener : public QObject
 {
@@ -19,18 +20,23 @@ public:
 
 private slots:
     void readBarcodeData();
+    void handleSerialError(QSerialPort::SerialPortError error);
+    void attemptReconnect();
 
 private:
+    void openSerialPort();
+
     QSerialPort *serialPort;
     QUdpSocket *udpSocket;
     QByteArray barcodeBuffer;
     QHostAddress serverAddress;
     quint16 serverPort;
+    QTimer *reconnectTimer;
+    QString portName;
+    int baudRate;
 };
 
-#endif // BARCODEREADER_H
-
-
+#endif // BARCODELISTENER_H
 
 
 // BarcodeListener.cpp
@@ -40,38 +46,65 @@ private:
 #include <QDebug>
 
 BarcodeListener::BarcodeListener(QObject *parent)
-    : QObject(parent), udpSocket(new QUdpSocket(this))
+    : QObject(parent), udpSocket(new QUdpSocket(this)), reconnectTimer(new QTimer(this))
 {
+    // Serial port settings
+    portName = "COM4"; // Adjust port name if necessary
+    baudRate = QSerialPort::Baud9600; // Adjust baud rate if necessary
+
     // Initialize serial port
     serialPort = new QSerialPort(this);
-    serialPort->setPortName("COM4"); // Adjust port name if necessary
-    serialPort->setBaudRate(QSerialPort::Baud9600); // Adjust baud rate if necessary
-    serialPort->setDataBits(QSerialPort::Data8);
-    serialPort->setParity(QSerialPort::NoParity);
-    serialPort->setStopBits(QSerialPort::OneStop);
-    serialPort->setFlowControl(QSerialPort::NoFlowControl);
 
     // Attempt to open the serial port
-    if (serialPort->open(QIODevice::ReadOnly))
-    {
-        qDebug() << "Serial port opened successfully.";
-        connect(serialPort, &QSerialPort::readyRead, this, &BarcodeListener::readBarcodeData);
-    }
-    else
-    {
-        qCritical() << "Failed to open serial port:" << serialPort->errorString();
-        QCoreApplication::quit();
-    }
+    openSerialPort();
 
     // Set server address and port
     serverAddress = QHostAddress("192.168.1.100"); // Replace with your server's IP
     serverPort = 12345; // Replace with your server's port
+
+    // Setup reconnect timer but do not start it yet
+    reconnectTimer->setInterval(5000); // Attempt reconnection every 5 seconds
+    connect(reconnectTimer, &QTimer::timeout, this, &BarcodeListener::attemptReconnect);
 }
 
 BarcodeListener::~BarcodeListener()
 {
     if (serialPort->isOpen())
         serialPort->close();
+}
+
+void BarcodeListener::openSerialPort()
+{
+    if (serialPort->isOpen())
+        serialPort->close();
+
+    serialPort->setPortName(portName);
+    serialPort->setBaudRate(baudRate);
+    serialPort->setDataBits(QSerialPort::Data8);
+    serialPort->setParity(QSerialPort::NoParity);
+    serialPort->setStopBits(QSerialPort::OneStop);
+    serialPort->setFlowControl(QSerialPort::NoFlowControl);
+
+    if (serialPort->open(QIODevice::ReadOnly))
+    {
+        qDebug() << "Serial port opened successfully.";
+
+        // Connect signals and slots
+        connect(serialPort, &QSerialPort::readyRead, this, &BarcodeListener::readBarcodeData);
+        connect(serialPort, &QSerialPort::errorOccurred, this, &BarcodeListener::handleSerialError);
+
+        // Stop the reconnect timer if running
+        if (reconnectTimer->isActive())
+            reconnectTimer->stop();
+    }
+    else
+    {
+        qWarning() << "Failed to open serial port:" << serialPort->errorString();
+
+        // Start reconnect timer if not already running
+        if (!reconnectTimer->isActive())
+            reconnectTimer->start();
+    }
 }
 
 void BarcodeListener::readBarcodeData()
@@ -99,17 +132,27 @@ void BarcodeListener::readBarcodeData()
     }
 }
 
-
-// main.cpp
-
-#include <QCoreApplication>
-#include "BarcodeListener.h"
-
-int main(int argc, char *argv[])
+void BarcodeListener::handleSerialError(QSerialPort::SerialPortError error)
 {
-    QCoreApplication app(argc, argv);
+    if (error == QSerialPort::ResourceError)
+    {
+        qWarning() << "Serial port error occurred:" << serialPort->errorString();
 
-    BarcodeListener listener;
+        // Disconnect signals to prevent redundant calls
+        disconnect(serialPort, &QSerialPort::readyRead, this, &BarcodeListener::readBarcodeData);
+        disconnect(serialPort, &QSerialPort::errorOccurred, this, &BarcodeListener::handleSerialError);
 
-    return app.exec();
+        serialPort->close();
+
+        // Start reconnect timer
+        if (!reconnectTimer->isActive())
+            reconnectTimer->start();
+    }
+}
+
+void BarcodeListener::attemptReconnect()
+{
+    qDebug() << "Attempting to reconnect to serial port...";
+
+    openSerialPort();
 }
