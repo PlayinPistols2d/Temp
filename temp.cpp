@@ -40,6 +40,9 @@ private:
 
 
 
+
+
+
 #include "SmartCardReader.h"
 #include <QDebug>
 
@@ -163,8 +166,8 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 
-    // APDU command to get the UID with Le set to 6
-    QByteArray apduCommand = QByteArray::fromHex("FFCA000006");
+    // Revert APDU command to request maximum UID length
+    QByteArray apduCommand = QByteArray::fromHex("FFCA000000");
 
     SCARD_IO_REQUEST pioSendPci;
     if (dwActiveProtocol == SCARD_PROTOCOL_T0) {
@@ -196,14 +199,23 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 
+    // Debug: Output raw response data
+    qDebug() << "Received Data Length:" << cbRecvLength;
+    qDebug() << "Raw Response Data:" << QByteArray(reinterpret_cast<char*>(pbRecvBuffer), cbRecvLength).toHex().toUpper();
+
     // Check for success status word (SW1 SW2)
     if (cbRecvLength >= 2) {
         BYTE sw1 = pbRecvBuffer[cbRecvLength - 2];
         BYTE sw2 = pbRecvBuffer[cbRecvLength - 1];
         if (sw1 == 0x90 && sw2 == 0x00) {
             // Success, extract UID
-            int uidLength = cbRecvLength - 2;
+            int uidLength = cbRecvLength - 2;  // Exclude SW1 and SW2
             cardData = QByteArray(reinterpret_cast<char*>(pbRecvBuffer), uidLength);
+
+            // Debug: Output UID length and data
+            qDebug() << "UID Length:" << uidLength;
+            qDebug() << "UID Data:" << cardData.toHex().toUpper();
+
             return true;
         } else {
             errorMessage = QString("APDU command failed with status: %1 %2")
@@ -216,8 +228,6 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 }
-
-
 
 
 
