@@ -33,7 +33,6 @@ private:
 
     void monitorCardStatus();
     bool readCardData(QByteArray &cardData);
-    // Remove enableAutoPolling function
 };
 
 #endif // SMARTCARDREADER_H
@@ -41,13 +40,10 @@ private:
 
 
 
-
-
-
 #include "SmartCardReader.h"
 #include <QDebug>
 
-// Define the control code using the standard vendor-defined control code
+// Define the control code if needed for SCardControl
 #define IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE SCARD_CTL_CODE(2048)
 
 SmartCardReader::SmartCardReader(QObject *parent)
@@ -60,7 +56,7 @@ SmartCardReader::SmartCardReader(QObject *parent)
 SmartCardReader::~SmartCardReader()
 {
     stopMonitoring();
-    wait();
+    wait();  // Ensure the thread finishes before destruction
     if (hContext != 0) {
         SCardReleaseContext(hContext);
     }
@@ -70,7 +66,8 @@ bool SmartCardReader::initialize()
 {
     LONG lReturn = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to establish context: 0x%1").arg(QString::number(lReturn, 16).toUpper());
+        errorMessage = QString("Failed to establish context: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
         emit errorOccurred(errorMessage);
         return false;
     }
@@ -79,17 +76,19 @@ bool SmartCardReader::initialize()
     LPTSTR mszReaders = NULL;
     lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to list readers: 0x%1").arg(QString::number(lReturn, 16).toUpper());
+        errorMessage = QString("Failed to list readers: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
         emit errorOccurred(errorMessage);
         SCardReleaseContext(hContext);
         hContext = 0;
         return false;
     }
 
+    // Assuming the first reader is the target reader
     readerName = QString::fromWCharArray(mszReaders);
-    SCardFreeMemory(hContext, mszReaders);
 
-    // Remove enableAutoPolling since it's causing issues
+    // Free the memory allocated by SCardListReaders
+    SCardFreeMemory(hContext, mszReaders);
 
     return true;
 }
@@ -138,7 +137,8 @@ void SmartCardReader::monitorCardStatus()
                 }
             }
         } else if (lReturn != SCARD_E_TIMEOUT) {
-            errorMessage = QString("SCardGetStatusChange failed: 0x%1").arg(QString::number(lReturn, 16).toUpper());
+            errorMessage = QString("SCardGetStatusChange failed: 0x%1")
+                               .arg(QString::number(lReturn, 16).toUpper());
             emit errorOccurred(errorMessage);
             break;
         }
@@ -158,12 +158,13 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
                                 &hCard,
                                 &dwActiveProtocol);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to connect to card: 0x%1").arg(QString::number(lReturn, 16).toUpper());
+        errorMessage = QString("Failed to connect to card: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
         return false;
     }
 
-    // APDU command to get the UID
-    QByteArray apduCommand = QByteArray::fromHex("FFCA000000");
+    // APDU command to get the UID with Le set to 6
+    QByteArray apduCommand = QByteArray::fromHex("FFCA000006");
 
     SCARD_IO_REQUEST pioSendPci;
     if (dwActiveProtocol == SCARD_PROTOCOL_T0) {
@@ -190,7 +191,8 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
     SCardDisconnect(hCard, SCARD_LEAVE_CARD);
 
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to transmit APDU: 0x%1").arg(QString::number(lReturn, 16).toUpper());
+        errorMessage = QString("Failed to transmit APDU: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
         return false;
     }
 
@@ -214,6 +216,9 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 }
+
+
+
 
 
 
@@ -254,8 +259,3 @@ int main(int argc, char *argv[])
 
     return a.exec();
 }
-
-
-
-
-
