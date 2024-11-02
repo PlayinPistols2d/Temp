@@ -1,52 +1,50 @@
-#ifndef NFCREADER_H
-#define NFCREADER_H
+#ifndef ACR122UREADER_H
+#define ACR122UREADER_H
 
-#include <QObject>
 #include <winscard.h>
+#include <QObject>
+#include <QString>
+#include <QByteArray>
 
-class NFCReader : public QObject {
+class ACR122UReader : public QObject {
     Q_OBJECT
 
 public:
-    explicit NFCReader(QObject *parent = nullptr);
-    ~NFCReader();
+    ACR122UReader();
+    ~ACR122UReader();
 
-    bool initialize();
-    QString readCard();
+    bool initializeReader();
+    bool connectCard();
+    QByteArray readCardData();
+    void cleanup();
+    QString getCardUID();
 
 signals:
-    void cardRead(QString cardData);
+    void cardScanned(const QString &uid);
+
+public slots:
+    void checkForCard();
 
 private:
     SCARDCONTEXT hContext;
     SCARDHANDLE hCard;
-    bool isConnected;
-
-    bool connectToCard();
-    void disconnectFromCard();
+    DWORD dwActiveProtocol;
 };
 
-#endif // NFCREADER_H
+#endif // ACR122UREADER_H
 
 
 
-
-
-#include "NFCReader.h"
+#include "ACR122UReader.h"
 #include <QDebug>
 
-NFCReader::NFCReader(QObject *parent)
-    : QObject(parent), isConnected(false), hContext(0), hCard(0) {
+ACR122UReader::ACR122UReader() : hContext(0), hCard(0), dwActiveProtocol(0) {}
+
+ACR122UReader::~ACR122UReader() {
+    cleanup();
 }
 
-NFCReader::~NFCReader() {
-    disconnectFromCard();
-    if (hContext) {
-        SCardReleaseContext(hContext);
-    }
-}
-
-bool NFCReader::initialize() {
+bool ACR122UReader::initializeReader() {
     LONG result = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
     if (result != SCARD_S_SUCCESS) {
         qDebug() << "Failed to establish context:" << result;
@@ -55,57 +53,98 @@ bool NFCReader::initialize() {
     return true;
 }
 
-bool NFCReader::connectToCard() {
-    if (!hContext) return false;
+bool ACR122UReader::connectCard() {
+    DWORD dwReaderLen = SCARD_AUTOALLOCATE;
+    LPSTR mszReaders = NULL;
 
-    DWORD dwActiveProtocol;
-    LONG result = SCardConnect(hContext, "ACS ACR122U PICC Interface", SCARD_SHARE_SHARED,
-                               SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &hCard, &dwActiveProtocol);
+    LONG result = SCardListReaders(hContext, NULL, (LPSTR)&mszReaders, &dwReaderLen);
     if (result != SCARD_S_SUCCESS) {
-        qDebug() << "Failed to connect to the card:" << result;
+        qDebug() << "Failed to list readers:" << result;
         return false;
     }
-    isConnected = true;
+
+    result = SCardConnect(hContext, mszReaders, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &hCard, &dwActiveProtocol);
+    SCardFreeMemory(hContext, mszReaders);
+
+    if (result != SCARD_S_SUCCESS) {
+        qDebug() << "Failed to connect to card:" << result;
+        return false;
+    }
+
     return true;
 }
 
-void NFCReader::disconnectFromCard() {
-    if (isConnected && hCard) {
-        SCardDisconnect(hCard, SCARD_LEAVE_CARD);
-        isConnected = false;
-    }
-}
+QByteArray ACR122UReader::readCardData() {
+    BYTE pbRecvBuffer[258];
+    DWORD dwRecvLength = sizeof(pbRecvBuffer);
+    BYTE pbSendBuffer[] = { 0xFF, 0xCA, 0x00, 0x00, 0x00 };
+    DWORD dwSendLength = sizeof(pbSendBuffer);
 
-QString NFCReader::readCard() {
-    if (!connectToCard()) return QString();
-
-    BYTE cmd[] = {0xFF, 0xCA, 0x00, 0x00, 0x00};  // Example: Get UID for ISO14443-4 cards
-    BYTE response[256];
-    DWORD responseLen = sizeof(response);
-
-    LONG result = SCardTransmit(hCard, SCARD_PCI_T1, cmd, sizeof(cmd), NULL, response, &responseLen);
+    LONG result = SCardTransmit(hCard, SCARD_PCI_T0, pbSendBuffer, dwSendLength, NULL, pbRecvBuffer, &dwRecvLength);
     if (result != SCARD_S_SUCCESS) {
-        qDebug() << "Failed to read card:" << result;
-        disconnectFromCard();
-        return QString();
+        qDebug() << "Failed to read card data:" << result;
+        return QByteArray();
     }
 
-    disconnectFromCard();
-    QByteArray cardData(reinterpret_cast<char*>(response), responseLen);
-    QString cardDataHex = cardData.toHex();
-    emit cardRead(cardDataHex);
-    return cardDataHex;
+    return QByteArray((char*)pbRecvBuffer, dwRecvLength);
+}
+
+void ACR122UReader::cleanup() {
+    if (hCard) {
+        SCardDisconnect(hCard, SCARD_LEAVE_CARD);
+        hCard = 0;
+    }
+    if (hContext) {
+        SCardReleaseContext(hContext);
+        hContext = 0;
+    }
+}
+
+QString ACR122UReader::getCardUID() {
+    QByteArray cardData = readCardData();
+    if (!cardData.isEmpty()) {
+        return cardData.toHex().toUpper();
+    }
+    return QString();
+}
+
+void ACR122UReader::checkForCard() {
+    if (!connectCard()) {
+        qDebug() << "Waiting for a card...";
+        return;
+    }
+
+    QString cardUID = getCardUID();
+    if (!cardUID.isEmpty()) {
+        emit cardScanned(cardUID);
+    }
+
+    cleanup();
 }
 
 
 
 
+#include <QCoreApplication>
+#include <QTimer>
+#include "ACR122UReader.h"
+#include <QDebug>
 
-#include "NFCReader.h"
+int main(int argc, char *argv[]) {
+    QCoreApplication a(argc, argv);
 
-// Create and initialize NFC reader
-NFCReader *reader = new NFCReader(this);
-if (reader->initialize()) {
-    QString cardData = reader->readCard();
-    qDebug() << "Read Card Data:" << cardData;
+    ACR122UReader reader;
+    if (!reader.initializeReader()) {
+        return -1;
+    }
+
+    QObject::connect(&reader, &ACR122UReader::cardScanned, [](const QString &uid) {
+        qDebug() << "Card UID:" << uid;
+    });
+
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, &reader, &ACR122UReader::checkForCard);
+    timer.start(1000);  // Check every second
+
+    return a.exec();
 }
