@@ -16,7 +16,7 @@ public:
     ~SmartCardReader();
 
     bool initialize();
-    void run() override;  // Overridden from QThread
+    void run() override;
     void stopMonitoring();
 
 signals:
@@ -33,9 +33,13 @@ private:
 
     void monitorCardStatus();
     bool readCardData(QByteArray &cardData);
+    bool enableAutoPolling();
 };
 
 #endif // SMARTCARDREADER_H
+
+
+
 
 
 
@@ -54,7 +58,7 @@ SmartCardReader::SmartCardReader(QObject *parent)
 SmartCardReader::~SmartCardReader()
 {
     stopMonitoring();
-    wait();  // Wait for the thread to finish
+    wait();
     if (hContext != 0) {
         SCardReleaseContext(hContext);
     }
@@ -80,11 +84,53 @@ bool SmartCardReader::initialize()
         return false;
     }
 
-    // Assuming the first reader is the target reader
     readerName = QString::fromWCharArray(mszReaders);
-
-    // Free the memory allocated by SCardListReaders
     SCardFreeMemory(hContext, mszReaders);
+
+    // Enable auto-polling
+    if (!enableAutoPolling()) {
+        emit errorOccurred(errorMessage);
+        return false;
+    }
+
+    return true;
+}
+
+bool SmartCardReader::enableAutoPolling()
+{
+    SCARDHANDLE hCard;
+    DWORD dwActiveProtocol;
+
+    LONG lReturn = SCardConnect(hContext,
+                                (LPCWSTR)readerName.utf16(),
+                                SCARD_SHARE_DIRECT,
+                                0,
+                                &hCard,
+                                &dwActiveProtocol);
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = QString("Failed to connect to reader for auto-polling: %1").arg(lReturn);
+        return false;
+    }
+
+    // Command to enable auto-polling
+    BYTE cmdEnableAutoPolling[] = {0xE0, 0x00, 0x00, 0x40, 0x01, 0xFF};
+    BYTE recvBuffer[2];
+    DWORD recvLength = sizeof(recvBuffer);
+
+    lReturn = SCardControl(hCard,
+                           IOCTL_CCID_ESCAPE,
+                           cmdEnableAutoPolling,
+                           sizeof(cmdEnableAutoPolling),
+                           recvBuffer,
+                           recvLength,
+                           &recvLength);
+
+    SCardDisconnect(hCard, SCARD_LEAVE_CARD);
+
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = QString("Failed to enable auto-polling: %1").arg(lReturn);
+        return false;
+    }
 
     return true;
 }
@@ -111,7 +157,7 @@ void SmartCardReader::monitorCardStatus()
 
     while (isMonitoring) {
         readerState.dwCurrentState = readerState.dwEventState;
-        LONG lReturn = SCardGetStatusChange(hContext, 100, &readerState, 1);
+        LONG lReturn = SCardGetStatusChange(hContext, 50, &readerState, 1);
         if (lReturn == SCARD_S_SUCCESS) {
             if ((readerState.dwEventState & SCARD_STATE_CHANGED)) {
                 if ((readerState.dwEventState & SCARD_STATE_PRESENT) &&
@@ -137,8 +183,7 @@ void SmartCardReader::monitorCardStatus()
             emit errorOccurred(errorMessage);
             break;
         }
-        // Optional: Reduce or remove sleep to increase responsiveness
-        // msleep(10);
+        // Remove sleep to increase responsiveness
     }
 }
 
@@ -172,7 +217,7 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 
-    BYTE pbRecvBuffer[256];
+    BYTE pbRecvBuffer[258];
     DWORD cbRecvLength = sizeof(pbRecvBuffer);
 
     lReturn = SCardTransmit(hCard,
@@ -210,6 +255,10 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 }
+
+
+
+
 
 
 
