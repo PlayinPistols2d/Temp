@@ -33,6 +33,10 @@ private:
 
     void monitorCardStatus();
     bool readCardData(QByteArray &cardData);
+
+    // New methods to adjust reader settings
+    bool disableBuzzerAndLED();
+    bool enableAutoPolling();
 };
 
 #endif // SMARTCARDREADER_H
@@ -43,11 +47,11 @@ private:
 
 
 
+
 #include "SmartCardReader.h"
 #include <QDebug>
 
-// Define the control code if needed for SCardControl
-#define IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE SCARD_CTL_CODE(2048)
+#define IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE SCARD_CTL_CODE(0x00000300) // Vendor-defined control code
 
 SmartCardReader::SmartCardReader(QObject *parent)
     : QThread(parent),
@@ -92,6 +96,98 @@ bool SmartCardReader::initialize()
 
     // Free the memory allocated by SCardListReaders
     SCardFreeMemory(hContext, mszReaders);
+
+    // Disable buzzer and LEDs
+    if (!disableBuzzerAndLED()) {
+        emit errorOccurred(errorMessage);
+        // Depending on your requirements, you may choose to continue even if this fails
+    }
+
+    // Enable auto-polling
+    if (!enableAutoPolling()) {
+        emit errorOccurred(errorMessage);
+        // Depending on your requirements, you may choose to continue even if this fails
+    }
+
+    return true;
+}
+
+bool SmartCardReader::disableBuzzerAndLED()
+{
+    SCARDHANDLE hCard;
+    LONG lReturn = SCardConnect(hContext,
+                                (LPCWSTR)readerName.utf16(),
+                                SCARD_SHARE_DIRECT,
+                                0,
+                                &hCard,
+                                NULL);
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = QString("Failed to connect to reader for disabling buzzer and LEDs: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
+        return false;
+    }
+
+    // Command to disable buzzer and LEDs: FF 00 52 00 00
+    BYTE cmdDisableBuzzerAndLED[] = {0xFF, 0x00, 0x52, 0x00, 0x00};
+
+    BYTE recvBuffer[2];
+    DWORD recvLength = sizeof(recvBuffer);
+
+    lReturn = SCardControl(hCard,
+                           IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE,
+                           cmdDisableBuzzerAndLED,
+                           sizeof(cmdDisableBuzzerAndLED),
+                           recvBuffer,
+                           recvLength,
+                           &recvLength);
+
+    SCardDisconnect(hCard, SCARD_LEAVE_CARD);
+
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = QString("Failed to disable buzzer and LEDs: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
+        return false;
+    }
+
+    return true;
+}
+
+bool SmartCardReader::enableAutoPolling()
+{
+    SCARDHANDLE hCard;
+    LONG lReturn = SCardConnect(hContext,
+                                (LPCWSTR)readerName.utf16(),
+                                SCARD_SHARE_DIRECT,
+                                0,
+                                &hCard,
+                                NULL);
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = QString("Failed to connect to reader for enabling auto-polling: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
+        return false;
+    }
+
+    // Command to enable auto-polling: E0 00 00 40 01 01
+    BYTE cmdEnableAutoPolling[] = {0xE0, 0x00, 0x00, 0x40, 0x01, 0x01};
+
+    BYTE recvBuffer[2];
+    DWORD recvLength = sizeof(recvBuffer);
+
+    lReturn = SCardControl(hCard,
+                           IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE,
+                           cmdEnableAutoPolling,
+                           sizeof(cmdEnableAutoPolling),
+                           recvBuffer,
+                           recvLength,
+                           &recvLength);
+
+    SCardDisconnect(hCard, SCARD_LEAVE_CARD);
+
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = QString("Failed to enable auto-polling: 0x%1")
+                           .arg(QString::number(lReturn, 16).toUpper());
+        return false;
+    }
 
     return true;
 }
@@ -145,7 +241,7 @@ void SmartCardReader::monitorCardStatus()
             emit errorOccurred(errorMessage);
             break;
         }
-        // Remove sleep to increase responsiveness
+        // No sleep to maximize responsiveness
     }
 }
 
@@ -166,7 +262,7 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 
-    // Revert APDU command to request maximum UID length
+    // APDU command to get the UID
     QByteArray apduCommand = QByteArray::fromHex("FFCA000000");
 
     SCARD_IO_REQUEST pioSendPci;
@@ -199,20 +295,24 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         return false;
     }
 
-    // Debug: Output raw response data
+    // Output the raw response data for debugging
     qDebug() << "Received Data Length:" << cbRecvLength;
-    qDebug() << "Raw Response Data:" << QByteArray(reinterpret_cast<char*>(pbRecvBuffer), cbRecvLength).toHex().toUpper();
+    QByteArray rawResponse = QByteArray(reinterpret_cast<char*>(pbRecvBuffer), cbRecvLength);
+    qDebug() << "Raw Response Data:" << rawResponse.toHex().toUpper();
 
     // Check for success status word (SW1 SW2)
     if (cbRecvLength >= 2) {
         BYTE sw1 = pbRecvBuffer[cbRecvLength - 2];
         BYTE sw2 = pbRecvBuffer[cbRecvLength - 1];
+        qDebug() << "SW1 SW2:" << QString("%1 %2")
+                                .arg(QString("%1").arg(sw1, 2, 16, QChar('0')).toUpper())
+                                .arg(QString("%1").arg(sw2, 2, 16, QChar('0')).toUpper());
         if (sw1 == 0x90 && sw2 == 0x00) {
             // Success, extract UID
             int uidLength = cbRecvLength - 2;  // Exclude SW1 and SW2
             cardData = QByteArray(reinterpret_cast<char*>(pbRecvBuffer), uidLength);
 
-            // Debug: Output UID length and data
+            // Output UID length and data
             qDebug() << "UID Length:" << uidLength;
             qDebug() << "UID Data:" << cardData.toHex().toUpper();
 
@@ -269,3 +369,4 @@ int main(int argc, char *argv[])
 
     return a.exec();
 }
+
