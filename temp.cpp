@@ -33,7 +33,7 @@ private:
 
     void monitorCardStatus();
     bool readCardData(QByteArray &cardData);
-    bool enableAutoPolling();
+    // Remove enableAutoPolling function
 };
 
 #endif // SMARTCARDREADER_H
@@ -43,10 +43,12 @@ private:
 
 
 
+
 #include "SmartCardReader.h"
 #include <QDebug>
 
-#define IOCTL_CCID_ESCAPE SCARD_CTL_CODE(3500)
+// Define the control code using the standard vendor-defined control code
+#define IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE SCARD_CTL_CODE(2048)
 
 SmartCardReader::SmartCardReader(QObject *parent)
     : QThread(parent),
@@ -68,7 +70,7 @@ bool SmartCardReader::initialize()
 {
     LONG lReturn = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to establish context: %1").arg(lReturn);
+        errorMessage = QString("Failed to establish context: 0x%1").arg(QString::number(lReturn, 16).toUpper());
         emit errorOccurred(errorMessage);
         return false;
     }
@@ -77,7 +79,7 @@ bool SmartCardReader::initialize()
     LPTSTR mszReaders = NULL;
     lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to list readers: %1").arg(lReturn);
+        errorMessage = QString("Failed to list readers: 0x%1").arg(QString::number(lReturn, 16).toUpper());
         emit errorOccurred(errorMessage);
         SCardReleaseContext(hContext);
         hContext = 0;
@@ -87,50 +89,7 @@ bool SmartCardReader::initialize()
     readerName = QString::fromWCharArray(mszReaders);
     SCardFreeMemory(hContext, mszReaders);
 
-    // Enable auto-polling
-    if (!enableAutoPolling()) {
-        emit errorOccurred(errorMessage);
-        return false;
-    }
-
-    return true;
-}
-
-bool SmartCardReader::enableAutoPolling()
-{
-    SCARDHANDLE hCard;
-    DWORD dwActiveProtocol;
-
-    LONG lReturn = SCardConnect(hContext,
-                                (LPCWSTR)readerName.utf16(),
-                                SCARD_SHARE_DIRECT,
-                                0,
-                                &hCard,
-                                &dwActiveProtocol);
-    if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to connect to reader for auto-polling: %1").arg(lReturn);
-        return false;
-    }
-
-    // Command to enable auto-polling
-    BYTE cmdEnableAutoPolling[] = {0xE0, 0x00, 0x00, 0x40, 0x01, 0xFF};
-    BYTE recvBuffer[2];
-    DWORD recvLength = sizeof(recvBuffer);
-
-    lReturn = SCardControl(hCard,
-                           IOCTL_CCID_ESCAPE,
-                           cmdEnableAutoPolling,
-                           sizeof(cmdEnableAutoPolling),
-                           recvBuffer,
-                           recvLength,
-                           &recvLength);
-
-    SCardDisconnect(hCard, SCARD_LEAVE_CARD);
-
-    if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to enable auto-polling: %1").arg(lReturn);
-        return false;
-    }
+    // Remove enableAutoPolling since it's causing issues
 
     return true;
 }
@@ -157,7 +116,7 @@ void SmartCardReader::monitorCardStatus()
 
     while (isMonitoring) {
         readerState.dwCurrentState = readerState.dwEventState;
-        LONG lReturn = SCardGetStatusChange(hContext, 50, &readerState, 1);
+        LONG lReturn = SCardGetStatusChange(hContext, 10, &readerState, 1);
         if (lReturn == SCARD_S_SUCCESS) {
             if ((readerState.dwEventState & SCARD_STATE_CHANGED)) {
                 if ((readerState.dwEventState & SCARD_STATE_PRESENT) &&
@@ -179,7 +138,7 @@ void SmartCardReader::monitorCardStatus()
                 }
             }
         } else if (lReturn != SCARD_E_TIMEOUT) {
-            errorMessage = QString("SCardGetStatusChange failed: %1").arg(lReturn);
+            errorMessage = QString("SCardGetStatusChange failed: 0x%1").arg(QString::number(lReturn, 16).toUpper());
             emit errorOccurred(errorMessage);
             break;
         }
@@ -199,7 +158,7 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
                                 &hCard,
                                 &dwActiveProtocol);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to connect to card: %1").arg(lReturn);
+        errorMessage = QString("Failed to connect to card: 0x%1").arg(QString::number(lReturn, 16).toUpper());
         return false;
     }
 
@@ -231,7 +190,7 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
     SCardDisconnect(hCard, SCARD_LEAVE_CARD);
 
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to transmit APDU: %1").arg(lReturn);
+        errorMessage = QString("Failed to transmit APDU: 0x%1").arg(QString::number(lReturn, 16).toUpper());
         return false;
     }
 
@@ -259,9 +218,6 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
 
 
 
-
-
-
 #include <QCoreApplication>
 #include <QDebug>
 #include "SmartCardReader.h"
@@ -282,6 +238,7 @@ int main(int argc, char *argv[])
 
     QObject::connect(&reader, &SmartCardReader::cardDataRead, [](const QByteArray &data) {
         qDebug() << "Card UID:" << data.toHex().toUpper();
+        qDebug() << "UID Length:" << data.size();
     });
 
     QObject::connect(&reader, &SmartCardReader::errorOccurred, [](const QString &error) {
@@ -297,3 +254,8 @@ int main(int argc, char *argv[])
 
     return a.exec();
 }
+
+
+
+
+
