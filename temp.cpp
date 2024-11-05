@@ -9,8 +9,7 @@
 #ifdef _WIN32
 #include <winscard.h>
 #else
-#include <pcsclite.h>
-#include <winscard.h>
+#include <winscard.h> // On Linux, this is provided by PCSC Lite
 #endif
 
 class SmartCardReader
@@ -49,21 +48,12 @@ private:
 
 
 
-
-
-
-
 #include "SmartCardReader.h"
 #include <iostream>
 #include <chrono>
 #include <thread>
 #include <vector>
-
-#ifdef _WIN32
-#include <tchar.h>
-#else
 #include <cstring>
-#endif
 
 SmartCardReader::SmartCardReader()
     : hContext(0),
@@ -93,9 +83,13 @@ bool SmartCardReader::initialize()
     }
 
     // List available readers
-    DWORD dwReaders = SCARD_AUTOALLOCATE;
+    DWORD dwReaders;
     char *mszReaders = NULL;
-    lReturn = SCardListReaders(hContext, NULL, (char *)&mszReaders, &dwReaders);
+
+#ifdef _WIN32
+    // On Windows, use SCARD_AUTOALLOCATE and ANSI functions
+    dwReaders = SCARD_AUTOALLOCATE;
+    lReturn = SCardListReadersA(hContext, NULL, (LPSTR)&mszReaders, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS) {
         errorMessage = "Failed to list readers: 0x" + std::to_string(lReturn);
         if (onErrorOccurred) onErrorOccurred(errorMessage);
@@ -113,6 +107,38 @@ bool SmartCardReader::initialize()
         errorMessage = "Failed to free memory: 0x" + std::to_string(lReturn);
         if (onErrorOccurred) onErrorOccurred(errorMessage);
     }
+#else
+    // On Linux, SCARD_AUTOALLOCATE is not supported
+    // First, call SCardListReaders to get the length
+    dwReaders = 0;
+    lReturn = SCardListReaders(hContext, NULL, NULL, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS || dwReaders == 0) {
+        errorMessage = "Failed to list readers or no readers available: 0x" + std::to_string(lReturn);
+        if (onErrorOccurred) onErrorOccurred(errorMessage);
+        SCardReleaseContext(hContext);
+        hContext = 0;
+        return false;
+    }
+
+    // Allocate buffer for reader names
+    mszReaders = new char[dwReaders];
+    lReturn = SCardListReaders(hContext, NULL, mszReaders, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = "Failed to list readers: 0x" + std::to_string(lReturn);
+        if (onErrorOccurred) onErrorOccurred(errorMessage);
+        delete[] mszReaders;
+        SCardReleaseContext(hContext);
+        hContext = 0;
+        return false;
+    }
+
+    // mszReaders is a multi-string (multiple null-terminated strings)
+    // We'll take the first reader
+    readerName = mszReaders;
+
+    // Free the memory allocated for reader names
+    delete[] mszReaders;
+#endif
 
     return true;
 }
@@ -130,19 +156,25 @@ void SmartCardReader::stopMonitoring()
 
 void SmartCardReader::monitorCardStatus()
 {
-    SCARD_READERSTATE readerState;
+#ifdef _WIN32
+    SCARD_READERSTATEA readerState = { 0 };
+#else
+    SCARD_READERSTATE readerState = { 0 };
+#endif
+
     readerState.szReader = readerName.c_str();
-    readerState.pvUserData = NULL;
     readerState.dwCurrentState = SCARD_STATE_UNAWARE;
-    readerState.dwEventState = 0;
-    readerState.cbAtr = 0;
 
     while (isMonitoring) {
         // Copy the current event state to current state
         readerState.dwCurrentState = readerState.dwEventState;
 
-        // Set a timeout for SCardGetStatusChange
+#ifdef _WIN32
+        LONG lReturn = SCardGetStatusChangeA(hContext, 500, &readerState, 1);
+#else
         LONG lReturn = SCardGetStatusChange(hContext, 500, &readerState, 1);
+#endif
+
         if (lReturn == SCARD_S_SUCCESS) {
             // Card inserted
             if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent.load()) {
@@ -177,18 +209,24 @@ bool SmartCardReader::readCardData(std::string &cardData)
     SCARDHANDLE hCard;
     DWORD dwActiveProtocol;
 
-#ifdef _WIN32
     const char *readerNamePtr = readerName.c_str();
-#else
-    const char *readerNamePtr = readerName.c_str();
-#endif
 
+#ifdef _WIN32
+    LONG lReturn = SCardConnectA(hContext,
+                                 readerNamePtr,
+                                 SCARD_SHARE_SHARED,
+                                 SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+                                 &hCard,
+                                 &dwActiveProtocol);
+#else
     LONG lReturn = SCardConnect(hContext,
                                 readerNamePtr,
                                 SCARD_SHARE_SHARED,
                                 SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
                                 &hCard,
                                 &dwActiveProtocol);
+#endif
+
     if (lReturn != SCARD_S_SUCCESS) {
         errorMessage = "Failed to connect to card: 0x" + std::to_string(lReturn);
         return false;
@@ -254,9 +292,6 @@ bool SmartCardReader::readCardData(std::string &cardData)
 
 
 
-
-
-
 #include <iostream>
 #include "SmartCardReader.h"
 
@@ -304,3 +339,4 @@ int main()
 
     return 0;
 }
+
