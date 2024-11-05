@@ -9,7 +9,7 @@
 #include <winscard.h>
 #else
 #include <pcsclite.h>
-#include <winscard.h> // Provided by PC/SC Lite on Linux
+#include <winscard.h>
 #endif
 
 class SmartCardReader
@@ -23,14 +23,9 @@ public:
     bool connectReader(const std::string &readerName);
     bool readCardUID(std::string &cardUID);
 
-    // Event callbacks (optional, can be used if integrating into an event-driven application)
-    std::function<void()> onCardInserted;
-    std::function<void()> onCardRemoved;
-    std::function<void(const std::string &uid)> onCardDataRead;
-    std::function<void(const std::string &error)> onErrorOccurred;
+    SCARDCONTEXT hContext; // Make hContext public for access in main.cpp
 
 private:
-    SCARDCONTEXT hContext;
     SCARDHANDLE hCard;
     std::string connectedReader;
     DWORD activeProtocol;
@@ -46,12 +41,18 @@ private:
 
 
 
+
+
+
+
 #include "SmartCardReader.h"
 #include <iostream>
 #include <cstring>
 
 #ifdef _WIN32
 #include <tchar.h>
+#else
+#include <pcsclite.h> // Include for pcsc_stringify_error
 #endif
 
 SmartCardReader::SmartCardReader()
@@ -85,17 +86,22 @@ void SmartCardReader::listAvailableReaders()
 {
     LONG lReturn;
     char *mszReaders = NULL;
-    DWORD dwReaders = SCARD_AUTOALLOCATE;
+    DWORD dwReaders = 0;
 
-    lReturn = SCardListReaders(hContext, NULL, (char *)&mszReaders, &dwReaders);
-    if (lReturn != SCARD_S_SUCCESS) {
-        std::cerr << "Failed to list readers: " << pcsc_stringify_error(lReturn) << std::endl;
+    // First, get the size of the readers buffer
+    lReturn = SCardListReaders(hContext, NULL, NULL, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS || dwReaders == 0) {
+        std::cerr << "Failed to list readers or no readers available: " << pcsc_stringify_error(lReturn) << std::endl;
         return;
     }
 
-    if (dwReaders == 0 || mszReaders == NULL || *mszReaders == '\0') {
-        std::cerr << "No smart card readers found." << std::endl;
-        SCardFreeMemory(hContext, mszReaders);
+    // Allocate memory for the readers list
+    mszReaders = new char[dwReaders];
+
+    lReturn = SCardListReaders(hContext, NULL, mszReaders, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS) {
+        std::cerr << "Failed to list readers: " << pcsc_stringify_error(lReturn) << std::endl;
+        delete[] mszReaders;
         return;
     }
 
@@ -109,14 +115,13 @@ void SmartCardReader::listAvailableReaders()
         pReader += readerName.length() + 1;
     }
 
-    // Free the memory allocated by SCardListReaders
-    SCardFreeMemory(hContext, mszReaders);
-
     // Print the list of readers
     std::cout << "Available smart card readers:" << std::endl;
     for (size_t i = 0; i < readerList.size(); ++i) {
         std::cout << " [" << i << "] " << readerList[i] << std::endl;
     }
+
+    delete[] mszReaders;
 }
 
 bool SmartCardReader::connectReader(const std::string &readerName)
@@ -203,4 +208,88 @@ void SmartCardReader::disconnectReader()
         SCardDisconnect(hCard, SCARD_UNPOWER_CARD);
         hCard = 0;
     }
+}
+
+
+
+
+
+
+#include <iostream>
+#include "SmartCardReader.h"
+
+void printHex(const std::string &data)
+{
+    for (unsigned char c : data) {
+        printf("%02X", c);
+    }
+    printf("\n");
+}
+
+int main()
+{
+    SmartCardReader reader;
+
+    if (!reader.initialize()) {
+        std::cerr << "Failed to initialize SmartCardReader." << std::endl;
+        return -1;
+    }
+
+    reader.listAvailableReaders();
+
+    // Prompt user to select a reader
+    int readerIndex = 0;
+    std::cout << "Enter the index of the reader to connect: ";
+    std::cin >> readerIndex;
+
+    // Get the list of readers again
+    char *mszReaders = NULL;
+    DWORD dwReaders = 0;
+    LONG lReturn = SCardListReaders(reader.hContext, NULL, NULL, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS || dwReaders == 0) {
+        std::cerr << "Failed to list readers: " << pcsc_stringify_error(lReturn) << std::endl;
+        return -1;
+    }
+
+    mszReaders = new char[dwReaders];
+    lReturn = SCardListReaders(reader.hContext, NULL, mszReaders, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS) {
+        std::cerr << "Failed to list readers: " << pcsc_stringify_error(lReturn) << std::endl;
+        delete[] mszReaders;
+        return -1;
+    }
+
+    std::vector<std::string> readerList;
+    char *pReader = mszReaders;
+    while (*pReader != '\0') {
+        std::string readerName = pReader;
+        readerList.push_back(readerName);
+        pReader += readerName.length() + 1;
+    }
+
+    delete[] mszReaders;
+
+    if (readerIndex < 0 || readerIndex >= static_cast<int>(readerList.size())) {
+        std::cerr << "Invalid reader index." << std::endl;
+        return -1;
+    }
+
+    std::string selectedReader = readerList[readerIndex];
+    if (!reader.connectReader(selectedReader)) {
+        std::cerr << "Failed to connect to the selected reader." << std::endl;
+        return -1;
+    }
+
+    std::cout << "Connected to reader: " << selectedReader << std::endl;
+
+    // Attempt to read the card UID
+    std::string cardUID;
+    if (reader.readCardUID(cardUID)) {
+        std::cout << "Card UID: ";
+        printHex(cardUID);
+    } else {
+        std::cerr << "Failed to read card UID." << std::endl;
+    }
+
+    return 0;
 }
