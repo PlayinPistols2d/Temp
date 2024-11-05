@@ -9,7 +9,7 @@
 #ifdef _WIN32
 #include <winscard.h>
 #else
-#include <winscard.h> // On Linux, this is provided by PCSC Lite
+#include <winscard.h> // Provided by PC/SC Lite on Linux
 #endif
 
 class SmartCardReader
@@ -25,7 +25,7 @@ public:
     // Event callbacks
     std::function<void()> onCardInserted;
     std::function<void()> onCardRemoved;
-    std::function<void(const std::string &data)> onCardDataRead;
+    std::function<void(const std::string &uid)> onCardDataRead;
     std::function<void(const std::string &error)> onErrorOccurred;
 
 private:
@@ -37,10 +37,14 @@ private:
     std::thread monitoringThread;
 
     void monitorCardStatus();
-    bool readCardData(std::string &cardData);
+    bool readCardData(std::string &cardUID);
+    void listAvailableReaders();
 };
 
 #endif // SMARTCARDREADER_H
+
+
+
 
 
 
@@ -54,6 +58,10 @@ private:
 #include <thread>
 #include <vector>
 #include <cstring>
+
+#ifdef _WIN32
+#include <tchar.h>
+#endif
 
 SmartCardReader::SmartCardReader()
     : hContext(0),
@@ -83,12 +91,11 @@ bool SmartCardReader::initialize()
     }
 
     // List available readers
-    DWORD dwReaders;
+    DWORD dwReaders = SCARD_AUTOALLOCATE;
     char *mszReaders = NULL;
 
 #ifdef _WIN32
-    // On Windows, use SCARD_AUTOALLOCATE and ANSI functions
-    dwReaders = SCARD_AUTOALLOCATE;
+    // Use ANSI functions explicitly to avoid issues with UNICODE settings
     lReturn = SCardListReadersA(hContext, NULL, (LPSTR)&mszReaders, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS) {
         errorMessage = "Failed to list readers: 0x" + std::to_string(lReturn);
@@ -98,22 +105,24 @@ bool SmartCardReader::initialize()
         return false;
     }
 
-    // Assuming the first reader is the target reader
-    readerName = mszReaders;
+    // Parse the multi-string to get all reader names
+    std::vector<std::string> readerList;
+    char *pReader = mszReaders;
+    while (*pReader != '\0') {
+        readerList.push_back(pReader);
+        pReader += strlen(pReader) + 1;
+    }
 
     // Free the memory allocated by SCardListReaders
-    lReturn = SCardFreeMemory(hContext, mszReaders);
-    if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = "Failed to free memory: 0x" + std::to_string(lReturn);
-        if (onErrorOccurred) onErrorOccurred(errorMessage);
-    }
+    SCardFreeMemory(hContext, mszReaders);
+
 #else
     // On Linux, SCARD_AUTOALLOCATE is not supported
-    // First, call SCardListReaders to get the length
-    dwReaders = 0;
+    // First, get the required buffer size
     lReturn = SCardListReaders(hContext, NULL, NULL, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS || dwReaders == 0) {
-        errorMessage = "Failed to list readers or no readers available: 0x" + std::to_string(lReturn);
+        errorMessage = "Failed to list readers or no readers available: 0x" +
+                       std::to_string(lReturn);
         if (onErrorOccurred) onErrorOccurred(errorMessage);
         SCardReleaseContext(hContext);
         hContext = 0;
@@ -132,13 +141,34 @@ bool SmartCardReader::initialize()
         return false;
     }
 
-    // mszReaders is a multi-string (multiple null-terminated strings)
-    // We'll take the first reader
-    readerName = mszReaders;
+    // Parse the multi-string to get all reader names
+    std::vector<std::string> readerList;
+    char *pReader = mszReaders;
+    while (*pReader != '\0') {
+        readerList.push_back(pReader);
+        pReader += strlen(pReader) + 1;
+    }
 
     // Free the memory allocated for reader names
     delete[] mszReaders;
 #endif
+
+    if (readerList.empty()) {
+        errorMessage = "No readers found.";
+        if (onErrorOccurred) onErrorOccurred(errorMessage);
+        SCardReleaseContext(hContext);
+        hContext = 0;
+        return false;
+    }
+
+    // Use the first reader (you can modify this to select a specific reader)
+    readerName = readerList[0];
+
+    // Optionally, print the list of readers
+    std::cout << "Available readers:" << std::endl;
+    for (const auto &name : readerList) {
+        std::cout << " - " << name << std::endl;
+    }
 
     return true;
 }
@@ -204,23 +234,21 @@ void SmartCardReader::monitorCardStatus()
     }
 }
 
-bool SmartCardReader::readCardData(std::string &cardData)
+bool SmartCardReader::readCardData(std::string &cardUID)
 {
     SCARDHANDLE hCard;
     DWORD dwActiveProtocol;
 
-    const char *readerNamePtr = readerName.c_str();
-
 #ifdef _WIN32
     LONG lReturn = SCardConnectA(hContext,
-                                 readerNamePtr,
+                                 readerName.c_str(),
                                  SCARD_SHARE_SHARED,
                                  SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
                                  &hCard,
                                  &dwActiveProtocol);
 #else
     LONG lReturn = SCardConnect(hContext,
-                                readerNamePtr,
+                                readerName.c_str(),
                                 SCARD_SHARE_SHARED,
                                 SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
                                 &hCard,
@@ -271,7 +299,14 @@ bool SmartCardReader::readCardData(std::string &cardData)
         if (sw1 == 0x90 && sw2 == 0x00) {
             // Success, extract UID
             int uidLength = cbRecvLength - 2;  // Exclude SW1 and SW2
-            cardData.assign((char*)pbRecvBuffer, uidLength);
+            cardUID.assign((char*)pbRecvBuffer, uidLength);
+
+            // Debug: Print UID
+            std::cout << "Card UID: ";
+            for (int i = 0; i < uidLength; ++i) {
+                printf("%02X", (unsigned char)cardUID[i]);
+            }
+            std::cout << std::endl;
 
             return true;
         } else {
@@ -286,6 +321,11 @@ bool SmartCardReader::readCardData(std::string &cardData)
         return false;
     }
 }
+
+
+
+
+
 
 
 
@@ -339,4 +379,3 @@ int main()
 
     return 0;
 }
-
