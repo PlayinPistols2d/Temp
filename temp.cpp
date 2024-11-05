@@ -5,7 +5,13 @@
 #include <thread>
 #include <atomic>
 #include <functional>
+
+#ifdef _WIN32
 #include <winscard.h>
+#else
+#include <pcsclite.h>
+#include <winscard.h>
+#endif
 
 class SmartCardReader
 {
@@ -25,7 +31,7 @@ public:
 
 private:
     SCARDCONTEXT hContext;
-    std::wstring readerName;
+    std::string readerName;
     std::string errorMessage;
     std::atomic<bool> isMonitoring;
     std::atomic<bool> cardPresent;
@@ -44,10 +50,20 @@ private:
 
 
 
+
+
+
 #include "SmartCardReader.h"
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <vector>
+
+#ifdef _WIN32
+#include <tchar.h>
+#else
+#include <cstring>
+#endif
 
 SmartCardReader::SmartCardReader()
     : hContext(0),
@@ -76,9 +92,10 @@ bool SmartCardReader::initialize()
         return false;
     }
 
+    // List available readers
     DWORD dwReaders = SCARD_AUTOALLOCATE;
-    LPWSTR mszReaders = NULL;
-    lReturn = SCardListReadersW(hContext, NULL, (LPWSTR)&mszReaders, &dwReaders);
+    char *mszReaders = NULL;
+    lReturn = SCardListReaders(hContext, NULL, (char *)&mszReaders, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS) {
         errorMessage = "Failed to list readers: 0x" + std::to_string(lReturn);
         if (onErrorOccurred) onErrorOccurred(errorMessage);
@@ -91,7 +108,11 @@ bool SmartCardReader::initialize()
     readerName = mszReaders;
 
     // Free the memory allocated by SCardListReaders
-    SCardFreeMemory(hContext, mszReaders);
+    lReturn = SCardFreeMemory(hContext, mszReaders);
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = "Failed to free memory: 0x" + std::to_string(lReturn);
+        if (onErrorOccurred) onErrorOccurred(errorMessage);
+    }
 
     return true;
 }
@@ -109,7 +130,7 @@ void SmartCardReader::stopMonitoring()
 
 void SmartCardReader::monitorCardStatus()
 {
-    SCARD_READERSTATEW readerState;
+    SCARD_READERSTATE readerState;
     readerState.szReader = readerName.c_str();
     readerState.pvUserData = NULL;
     readerState.dwCurrentState = SCARD_STATE_UNAWARE;
@@ -121,7 +142,7 @@ void SmartCardReader::monitorCardStatus()
         readerState.dwCurrentState = readerState.dwEventState;
 
         // Set a timeout for SCardGetStatusChange
-        LONG lReturn = SCardGetStatusChangeW(hContext, 500, &readerState, 1);
+        LONG lReturn = SCardGetStatusChange(hContext, 500, &readerState, 1);
         if (lReturn == SCARD_S_SUCCESS) {
             // Card inserted
             if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent.load()) {
@@ -146,7 +167,7 @@ void SmartCardReader::monitorCardStatus()
             if (onErrorOccurred) onErrorOccurred(errorMessage);
             break;
         }
-        // Optional: Sleep for a short period to prevent high CPU usage
+        // Sleep for a short period to prevent high CPU usage
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
@@ -156,12 +177,18 @@ bool SmartCardReader::readCardData(std::string &cardData)
     SCARDHANDLE hCard;
     DWORD dwActiveProtocol;
 
-    LONG lReturn = SCardConnectW(hContext,
-                                 readerName.c_str(),
-                                 SCARD_SHARE_SHARED,
-                                 SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
-                                 &hCard,
-                                 &dwActiveProtocol);
+#ifdef _WIN32
+    const char *readerNamePtr = readerName.c_str();
+#else
+    const char *readerNamePtr = readerName.c_str();
+#endif
+
+    LONG lReturn = SCardConnect(hContext,
+                                readerNamePtr,
+                                SCARD_SHARE_SHARED,
+                                SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+                                &hCard,
+                                &dwActiveProtocol);
     if (lReturn != SCARD_S_SUCCESS) {
         errorMessage = "Failed to connect to card: 0x" + std::to_string(lReturn);
         return false;
@@ -211,8 +238,8 @@ bool SmartCardReader::readCardData(std::string &cardData)
             return true;
         } else {
             char sw1_str[3], sw2_str[3];
-            sprintf_s(sw1_str, "%02X", sw1);
-            sprintf_s(sw2_str, "%02X", sw2);
+            sprintf(sw1_str, "%02X", sw1);
+            sprintf(sw2_str, "%02X", sw2);
             errorMessage = "APDU command failed with status: " + std::string(sw1_str) + " " + std::string(sw2_str);
             return false;
         }
@@ -221,6 +248,11 @@ bool SmartCardReader::readCardData(std::string &cardData)
         return false;
     }
 }
+
+
+
+
+
 
 
 
