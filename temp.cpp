@@ -1,50 +1,38 @@
 #ifndef SMARTCARDREADER_H
 #define SMARTCARDREADER_H
 
-#include <winscard.h>
-#include <QString>
-#include <QByteArray>
-#include <QThread>
-#include <QObject>
+#include <string>
+#include <thread>
 #include <atomic>
+#include <functional>
+#include <winscard.h>
 
-class SmartCardReader : public QThread
+class SmartCardReader
 {
-    Q_OBJECT
 public:
-    explicit SmartCardReader(QObject *parent = nullptr);
+    SmartCardReader();
     ~SmartCardReader();
 
-    void run() override;
-    void stop();
+    bool initialize();
+    void startMonitoring();
+    void stopMonitoring();
 
-    enum class ReaderState {
-        Disconnected,
-        Connecting,
-        Connected
-    };
-    Q_ENUM(ReaderState)
-
-    ReaderState getState() const;
-
-signals:
-    void stateChanged(SmartCardReader::ReaderState newState);
-    void cardDataRead(const QByteArray &data);
-    void errorOccurred(const QString &error);
+    // Event callbacks
+    std::function<void()> onCardInserted;
+    std::function<void()> onCardRemoved;
+    std::function<void(const std::string &data)> onCardDataRead;
+    std::function<void(const std::string &error)> onErrorOccurred;
 
 private:
-    void monitorReaders();
-    bool connectReader();
-    void disconnectReader();
-    void monitorCardStatus();
-    bool readCardData(QByteArray &cardData);
-
     SCARDCONTEXT hContext;
-    QString readerName;
-    QString errorMessage;
-    std::atomic<bool> isRunning;
+    std::wstring readerName;
+    std::string errorMessage;
+    std::atomic<bool> isMonitoring;
     std::atomic<bool> cardPresent;
-    std::atomic<ReaderState> currentState;
+    std::thread monitoringThread;
+
+    void monitorCardStatus();
+    bool readCardData(std::string &cardData);
 };
 
 #endif // SMARTCARDREADER_H
@@ -54,216 +42,133 @@ private:
 
 
 
-#include "SmartCardReader.h"
-#include <QDebug>
-#include <QTimer>
-#include <tchar.h>  // Include for TCHAR types
 
-SmartCardReader::SmartCardReader(QObject *parent)
-    : QThread(parent),
-      hContext(0),
-      isRunning(false),
-      cardPresent(false),
-      currentState(ReaderState::Disconnected)
+
+#include "SmartCardReader.h"
+#include <iostream>
+#include <chrono>
+#include <thread>
+
+SmartCardReader::SmartCardReader()
+    : hContext(0),
+      isMonitoring(false),
+      cardPresent(false)
 {
 }
 
 SmartCardReader::~SmartCardReader()
 {
-    stop();
-    wait();  // Ensure the thread finishes before destruction
+    stopMonitoring();
+    if (monitoringThread.joinable())
+        monitoringThread.join();
+
     if (hContext != 0) {
         SCardReleaseContext(hContext);
     }
 }
 
-void SmartCardReader::stop()
-{
-    isRunning = false;
-}
-
-SmartCardReader::ReaderState SmartCardReader::getState() const
-{
-    return currentState.load();
-}
-
-void SmartCardReader::run()
-{
-    isRunning = true;
-    monitorReaders();
-}
-
-void SmartCardReader::monitorReaders()
+bool SmartCardReader::initialize()
 {
     LONG lReturn = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to establish context: 0x%1")
-                           .arg(QString::number(lReturn, 16).toUpper());
-        emit errorOccurred(errorMessage);
-        return;
+        errorMessage = "Failed to establish context: 0x" + std::to_string(lReturn);
+        if (onErrorOccurred) onErrorOccurred(errorMessage);
+        return false;
     }
 
-    while (isRunning) {
-        // Check for available readers
-        DWORD dwReaders = SCARD_AUTOALLOCATE;
-        LPTSTR mszReaders = NULL;
-        lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
-
-        if (lReturn == SCARD_S_SUCCESS && dwReaders > 1) {
-            QStringList readerList;
-
-#ifdef UNICODE
-            // mszReaders is wchar_t*
-            readerList = QString::fromWCharArray(mszReaders).split(QChar('\0'), QString::SkipEmptyParts);
-#else
-            // mszReaders is char*
-            readerList = QString::fromLocal8Bit(mszReaders).split('\0', QString::SkipEmptyParts);
-#endif
-
-            if (!readerList.isEmpty()) {
-                if (currentState != ReaderState::Connected) {
-                    // Attempt to connect to the reader
-                    readerName = readerList.first();
-                    currentState = ReaderState::Connecting;
-                    emit stateChanged(currentState);
-
-                    if (connectReader()) {
-                        currentState = ReaderState::Connected;
-                        emit stateChanged(currentState);
-                        monitorCardStatus();
-                    } else {
-                        currentState = ReaderState::Disconnected;
-                        emit stateChanged(currentState);
-                    }
-                }
-            } else {
-                // No readers found
-                if (currentState != ReaderState::Disconnected) {
-                    currentState = ReaderState::Disconnected;
-                    emit stateChanged(currentState);
-                }
-            }
-        } else {
-            // No readers found or an error occurred
-            if (currentState != ReaderState::Disconnected) {
-                currentState = ReaderState::Disconnected;
-                emit stateChanged(currentState);
-            }
-        }
-
-        if (mszReaders != NULL) {
-            SCardFreeMemory(hContext, mszReaders);
-            mszReaders = NULL;
-        }
-
-        // Sleep for a while before checking again
-        QThread::sleep(1);
+    DWORD dwReaders = SCARD_AUTOALLOCATE;
+    LPWSTR mszReaders = NULL;
+    lReturn = SCardListReadersW(hContext, NULL, (LPWSTR)&mszReaders, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS) {
+        errorMessage = "Failed to list readers: 0x" + std::to_string(lReturn);
+        if (onErrorOccurred) onErrorOccurred(errorMessage);
+        SCardReleaseContext(hContext);
+        hContext = 0;
+        return false;
     }
 
-    // Clean up context
-    SCardReleaseContext(hContext);
-    hContext = 0;
-}
+    // Assuming the first reader is the target reader
+    readerName = mszReaders;
 
-bool SmartCardReader::connectReader()
-{
-    // In this simplified example, we assume that the reader is always available when detected
+    // Free the memory allocated by SCardListReaders
+    SCardFreeMemory(hContext, mszReaders);
+
     return true;
 }
 
-void SmartCardReader::disconnectReader()
+void SmartCardReader::startMonitoring()
 {
-    // Any cleanup if needed
-    currentState = ReaderState::Disconnected;
-    emit stateChanged(currentState);
+    isMonitoring = true;
+    monitoringThread = std::thread(&SmartCardReader::monitorCardStatus, this);
+}
+
+void SmartCardReader::stopMonitoring()
+{
+    isMonitoring = false;
 }
 
 void SmartCardReader::monitorCardStatus()
 {
-    SCARD_READERSTATE readerState;
-
-#ifdef UNICODE
-    readerState.szReader = (LPWSTR)readerName.utf16();
-#else
-    readerState.szReader = (LPSTR)readerName.toLocal8Bit().constData();
-#endif
-
+    SCARD_READERSTATEW readerState;
+    readerState.szReader = readerName.c_str();
     readerState.pvUserData = NULL;
     readerState.dwCurrentState = SCARD_STATE_UNAWARE;
     readerState.dwEventState = 0;
     readerState.cbAtr = 0;
 
-    while (isRunning && currentState == ReaderState::Connected) {
+    while (isMonitoring) {
         // Copy the current event state to current state
         readerState.dwCurrentState = readerState.dwEventState;
 
         // Set a timeout for SCardGetStatusChange
-        LONG lReturn = SCardGetStatusChange(hContext, 500, &readerState, 1);
+        LONG lReturn = SCardGetStatusChangeW(hContext, 500, &readerState, 1);
         if (lReturn == SCARD_S_SUCCESS) {
             // Card inserted
-            if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent) {
+            if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent.load()) {
                 cardPresent = true;
+                if (onCardInserted) onCardInserted();
 
                 // Read data from the card
-                QByteArray cardData;
+                std::string cardData;
                 if (readCardData(cardData)) {
-                    emit cardDataRead(cardData);
+                    if (onCardDataRead) onCardDataRead(cardData);
                 } else {
-                    emit errorOccurred(errorMessage);
+                    if (onErrorOccurred) onErrorOccurred(errorMessage);
                 }
             }
             // Card removed
-            else if (!(readerState.dwEventState & SCARD_STATE_PRESENT) && cardPresent) {
+            else if (!(readerState.dwEventState & SCARD_STATE_PRESENT) && cardPresent.load()) {
                 cardPresent = false;
+                if (onCardRemoved) onCardRemoved();
             }
-            // Reader removed
-            if (readerState.dwEventState & SCARD_STATE_UNKNOWN) {
-                // The reader has been disconnected
-                currentState = ReaderState::Disconnected;
-                emit stateChanged(currentState);
-                break;
-            }
-        } else if (lReturn == SCARD_E_UNKNOWN_READER || lReturn == SCARD_E_READER_UNAVAILABLE) {
-            // The reader has been disconnected
-            currentState = ReaderState::Disconnected;
-            emit stateChanged(currentState);
-            break;
         } else if (lReturn != SCARD_E_TIMEOUT) {
-            errorMessage = QString("SCardGetStatusChange failed: 0x%1")
-                               .arg(QString::number(lReturn, 16).toUpper());
-            emit errorOccurred(errorMessage);
+            errorMessage = "SCardGetStatusChange failed: 0x" + std::to_string(lReturn);
+            if (onErrorOccurred) onErrorOccurred(errorMessage);
             break;
         }
         // Optional: Sleep for a short period to prevent high CPU usage
-        // QThread::msleep(10);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
-bool SmartCardReader::readCardData(QByteArray &cardData)
+bool SmartCardReader::readCardData(std::string &cardData)
 {
     SCARDHANDLE hCard;
     DWORD dwActiveProtocol;
 
-#ifdef UNICODE
-    LPCWSTR readerNamePtr = (LPCWSTR)readerName.utf16();
-#else
-    LPCSTR readerNamePtr = (LPCSTR)readerName.toLocal8Bit().constData();
-#endif
-
-    LONG lReturn = SCardConnect(hContext,
-                                readerNamePtr,
-                                SCARD_SHARE_SHARED,
-                                SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
-                                &hCard,
-                                &dwActiveProtocol);
+    LONG lReturn = SCardConnectW(hContext,
+                                 readerName.c_str(),
+                                 SCARD_SHARE_SHARED,
+                                 SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+                                 &hCard,
+                                 &dwActiveProtocol);
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to connect to card: 0x%1")
-                           .arg(QString::number(lReturn, 16).toUpper());
+        errorMessage = "Failed to connect to card: 0x" + std::to_string(lReturn);
         return false;
     }
 
     // APDU command to get the UID
-    QByteArray apduCommand = QByteArray::fromHex("FFCA000000");
+    BYTE apduCommand[] = { 0xFF, 0xCA, 0x00, 0x00, 0x00 };
 
     SCARD_IO_REQUEST pioSendPci;
     if (dwActiveProtocol == SCARD_PROTOCOL_T0) {
@@ -281,8 +186,8 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
 
     lReturn = SCardTransmit(hCard,
                             &pioSendPci,
-                            (LPCBYTE)apduCommand.constData(),
-                            apduCommand.size(),
+                            apduCommand,
+                            sizeof(apduCommand),
                             NULL,
                             pbRecvBuffer,
                             &cbRecvLength);
@@ -290,8 +195,7 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
     SCardDisconnect(hCard, SCARD_LEAVE_CARD);
 
     if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to transmit APDU: 0x%1")
-                           .arg(QString::number(lReturn, 16).toUpper());
+        errorMessage = "Failed to transmit APDU: 0x" + std::to_string(lReturn);
         return false;
     }
 
@@ -302,12 +206,14 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
         if (sw1 == 0x90 && sw2 == 0x00) {
             // Success, extract UID
             int uidLength = cbRecvLength - 2;  // Exclude SW1 and SW2
-            cardData = QByteArray(reinterpret_cast<char*>(pbRecvBuffer), uidLength);
+            cardData.assign((char*)pbRecvBuffer, uidLength);
+
             return true;
         } else {
-            errorMessage = QString("APDU command failed with status: %1 %2")
-                               .arg(QString("%1").arg(sw1, 2, 16, QChar('0')).toUpper())
-                               .arg(QString("%1").arg(sw2, 2, 16, QChar('0')).toUpper());
+            char sw1_str[3], sw2_str[3];
+            sprintf_s(sw1_str, "%02X", sw1);
+            sprintf_s(sw2_str, "%02X", sw2);
+            errorMessage = "APDU command failed with status: " + std::string(sw1_str) + " " + std::string(sw2_str);
             return false;
         }
     } else {
@@ -319,3 +225,50 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
 
 
 
+#include <iostream>
+#include "SmartCardReader.h"
+
+void hexPrint(const std::string &data)
+{
+    for (unsigned char c : data) {
+        printf("%02X", c);
+    }
+}
+
+int main()
+{
+    SmartCardReader reader;
+
+    reader.onCardInserted = []() {
+        std::cout << "Card inserted." << std::endl;
+    };
+
+    reader.onCardRemoved = []() {
+        std::cout << "Card removed." << std::endl;
+    };
+
+    reader.onCardDataRead = [](const std::string &data) {
+        std::cout << "Card UID: ";
+        hexPrint(data);
+        std::cout << std::endl;
+    };
+
+    reader.onErrorOccurred = [](const std::string &error) {
+        std::cout << "Error: " << error << std::endl;
+    };
+
+    if (!reader.initialize()) {
+        std::cout << "Initialization failed." << std::endl;
+        return -1;
+    }
+
+    reader.startMonitoring();
+
+    // Keep the main thread alive
+    std::cout << "Press Enter to exit..." << std::endl;
+    std::cin.get();
+
+    reader.stopMonitoring();
+
+    return 0;
+}
