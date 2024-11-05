@@ -54,11 +54,10 @@ private:
 
 
 
-
-
 #include "SmartCardReader.h"
 #include <QDebug>
 #include <QTimer>
+#include <tchar.h>  // Include for TCHAR types
 
 SmartCardReader::SmartCardReader(QObject *parent)
     : QThread(parent),
@@ -111,7 +110,15 @@ void SmartCardReader::monitorReaders()
         lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
 
         if (lReturn == SCARD_S_SUCCESS && dwReaders > 1) {
-            QStringList readerList = QString::fromWCharArray(mszReaders).split('\0', QString::SkipEmptyParts);
+            QStringList readerList;
+
+#ifdef UNICODE
+            // mszReaders is wchar_t*
+            readerList = QString::fromWCharArray(mszReaders).split(QChar('\0'), QString::SkipEmptyParts);
+#else
+            // mszReaders is char*
+            readerList = QString::fromLocal8Bit(mszReaders).split('\0', QString::SkipEmptyParts);
+#endif
 
             if (!readerList.isEmpty()) {
                 if (currentState != ReaderState::Connected) {
@@ -146,6 +153,7 @@ void SmartCardReader::monitorReaders()
 
         if (mszReaders != NULL) {
             SCardFreeMemory(hContext, mszReaders);
+            mszReaders = NULL;
         }
 
         // Sleep for a while before checking again
@@ -173,7 +181,13 @@ void SmartCardReader::disconnectReader()
 void SmartCardReader::monitorCardStatus()
 {
     SCARD_READERSTATE readerState;
-    readerState.szReader = (LPCWSTR)readerName.utf16();
+
+#ifdef UNICODE
+    readerState.szReader = (LPWSTR)readerName.utf16();
+#else
+    readerState.szReader = (LPSTR)readerName.toLocal8Bit().constData();
+#endif
+
     readerState.pvUserData = NULL;
     readerState.dwCurrentState = SCARD_STATE_UNAWARE;
     readerState.dwEventState = 0;
@@ -230,8 +244,14 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
     SCARDHANDLE hCard;
     DWORD dwActiveProtocol;
 
+#ifdef UNICODE
+    LPCWSTR readerNamePtr = (LPCWSTR)readerName.utf16();
+#else
+    LPCSTR readerNamePtr = (LPCSTR)readerName.toLocal8Bit().constData();
+#endif
+
     LONG lReturn = SCardConnect(hContext,
-                                (LPCWSTR)readerName.utf16(),
+                                readerNamePtr,
                                 SCARD_SHARE_SHARED,
                                 SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
                                 &hCard,
@@ -299,30 +319,3 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
 
 
 
-
-#include <QCoreApplication>
-#include <QDebug>
-#include "SmartCardReader.h"
-
-int main(int argc, char *argv[])
-{
-    QCoreApplication a(argc, argv);
-
-    SmartCardReader reader;
-
-    QObject::connect(&reader, &SmartCardReader::stateChanged, [](SmartCardReader::ReaderState state) {
-        qDebug() << "Reader State Changed:" << static_cast<int>(state);
-    });
-
-    QObject::connect(&reader, &SmartCardReader::cardDataRead, [](const QByteArray &data) {
-        qDebug() << "Card UID:" << data.toHex().toUpper();
-    });
-
-    QObject::connect(&reader, &SmartCardReader::errorOccurred, [](const QString &error) {
-        qDebug() << "Error:" << error;
-    });
-
-    reader.start();
-
-    return a.exec();
-}
