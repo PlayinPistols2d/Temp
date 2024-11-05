@@ -15,25 +15,36 @@ public:
     explicit SmartCardReader(QObject *parent = nullptr);
     ~SmartCardReader();
 
-    bool initialize();
     void run() override;
-    void stopMonitoring();
+    void stop();
+
+    enum class ReaderState {
+        Disconnected,
+        Connecting,
+        Connected
+    };
+    Q_ENUM(ReaderState)
+
+    ReaderState getState() const;
 
 signals:
-    void cardInserted();
-    void cardRemoved();
+    void stateChanged(SmartCardReader::ReaderState newState);
     void cardDataRead(const QByteArray &data);
     void errorOccurred(const QString &error);
 
 private:
+    void monitorReaders();
+    bool connectReader();
+    void disconnectReader();
+    void monitorCardStatus();
+    bool readCardData(QByteArray &cardData);
+
     SCARDCONTEXT hContext;
     QString readerName;
     QString errorMessage;
-    std::atomic<bool> isMonitoring;
-    bool cardPresent;  // Added card presence flag
-
-    void monitorCardStatus();
-    bool readCardData(QByteArray &cardData);
+    std::atomic<bool> isRunning;
+    std::atomic<bool> cardPresent;
+    std::atomic<ReaderState> currentState;
 };
 
 #endif // SMARTCARDREADER_H
@@ -47,66 +58,116 @@ private:
 
 #include "SmartCardReader.h"
 #include <QDebug>
-
-#define IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE SCARD_CTL_CODE(2048)
+#include <QTimer>
 
 SmartCardReader::SmartCardReader(QObject *parent)
     : QThread(parent),
       hContext(0),
-      isMonitoring(false),
-      cardPresent(false)  // Initialize the flag
+      isRunning(false),
+      cardPresent(false),
+      currentState(ReaderState::Disconnected)
 {
 }
 
 SmartCardReader::~SmartCardReader()
 {
-    stopMonitoring();
+    stop();
     wait();  // Ensure the thread finishes before destruction
     if (hContext != 0) {
         SCardReleaseContext(hContext);
     }
 }
 
-bool SmartCardReader::initialize()
+void SmartCardReader::stop()
+{
+    isRunning = false;
+}
+
+SmartCardReader::ReaderState SmartCardReader::getState() const
+{
+    return currentState.load();
+}
+
+void SmartCardReader::run()
+{
+    isRunning = true;
+    monitorReaders();
+}
+
+void SmartCardReader::monitorReaders()
 {
     LONG lReturn = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
     if (lReturn != SCARD_S_SUCCESS) {
         errorMessage = QString("Failed to establish context: 0x%1")
                            .arg(QString::number(lReturn, 16).toUpper());
         emit errorOccurred(errorMessage);
-        return false;
+        return;
     }
 
-    DWORD dwReaders = SCARD_AUTOALLOCATE;
-    LPTSTR mszReaders = NULL;
-    lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
-    if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to list readers: 0x%1")
-                           .arg(QString::number(lReturn, 16).toUpper());
-        emit errorOccurred(errorMessage);
-        SCardReleaseContext(hContext);
-        hContext = 0;
-        return false;
+    while (isRunning) {
+        // Check for available readers
+        DWORD dwReaders = SCARD_AUTOALLOCATE;
+        LPTSTR mszReaders = NULL;
+        lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
+
+        if (lReturn == SCARD_S_SUCCESS && dwReaders > 1) {
+            QStringList readerList = QString::fromWCharArray(mszReaders).split('\0', QString::SkipEmptyParts);
+
+            if (!readerList.isEmpty()) {
+                if (currentState != ReaderState::Connected) {
+                    // Attempt to connect to the reader
+                    readerName = readerList.first();
+                    currentState = ReaderState::Connecting;
+                    emit stateChanged(currentState);
+
+                    if (connectReader()) {
+                        currentState = ReaderState::Connected;
+                        emit stateChanged(currentState);
+                        monitorCardStatus();
+                    } else {
+                        currentState = ReaderState::Disconnected;
+                        emit stateChanged(currentState);
+                    }
+                }
+            } else {
+                // No readers found
+                if (currentState != ReaderState::Disconnected) {
+                    currentState = ReaderState::Disconnected;
+                    emit stateChanged(currentState);
+                }
+            }
+        } else {
+            // No readers found or an error occurred
+            if (currentState != ReaderState::Disconnected) {
+                currentState = ReaderState::Disconnected;
+                emit stateChanged(currentState);
+            }
+        }
+
+        if (mszReaders != NULL) {
+            SCardFreeMemory(hContext, mszReaders);
+        }
+
+        // Sleep for a while before checking again
+        QThread::sleep(1);
     }
 
-    // Assuming the first reader is the target reader
-    readerName = QString::fromWCharArray(mszReaders);
+    // Clean up context
+    SCardReleaseContext(hContext);
+    hContext = 0;
+}
 
-    // Free the memory allocated by SCardListReaders
-    SCardFreeMemory(hContext, mszReaders);
-
+bool SmartCardReader::connectReader()
+{
+    // In this simplified example, we assume that the reader is always available when detected
     return true;
 }
 
-void SmartCardReader::run()
+void SmartCardReader::disconnectReader()
 {
-    isMonitoring = true;
-    monitorCardStatus();
-}
-
-void SmartCardReader::stopMonitoring()
-{
-    isMonitoring = false;
+    // Any cleanup if needed
+    currentState = ReaderState::Disconnected;
+    emit stateChanged(currentState);
 }
 
 void SmartCardReader::monitorCardStatus()
@@ -118,7 +179,7 @@ void SmartCardReader::monitorCardStatus()
     readerState.dwEventState = 0;
     readerState.cbAtr = 0;
 
-    while (isMonitoring) {
+    while (isRunning && currentState == ReaderState::Connected) {
         // Copy the current event state to current state
         readerState.dwCurrentState = readerState.dwEventState;
 
@@ -128,7 +189,6 @@ void SmartCardReader::monitorCardStatus()
             // Card inserted
             if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent) {
                 cardPresent = true;
-                emit cardInserted();
 
                 // Read data from the card
                 QByteArray cardData;
@@ -141,8 +201,19 @@ void SmartCardReader::monitorCardStatus()
             // Card removed
             else if (!(readerState.dwEventState & SCARD_STATE_PRESENT) && cardPresent) {
                 cardPresent = false;
-                emit cardRemoved();
             }
+            // Reader removed
+            if (readerState.dwEventState & SCARD_STATE_UNKNOWN) {
+                // The reader has been disconnected
+                currentState = ReaderState::Disconnected;
+                emit stateChanged(currentState);
+                break;
+            }
+        } else if (lReturn == SCARD_E_UNKNOWN_READER || lReturn == SCARD_E_READER_UNAVAILABLE) {
+            // The reader has been disconnected
+            currentState = ReaderState::Disconnected;
+            emit stateChanged(currentState);
+            break;
         } else if (lReturn != SCARD_E_TIMEOUT) {
             errorMessage = QString("SCardGetStatusChange failed: 0x%1")
                                .arg(QString::number(lReturn, 16).toUpper());
@@ -228,3 +299,30 @@ bool SmartCardReader::readCardData(QByteArray &cardData)
 
 
 
+
+#include <QCoreApplication>
+#include <QDebug>
+#include "SmartCardReader.h"
+
+int main(int argc, char *argv[])
+{
+    QCoreApplication a(argc, argv);
+
+    SmartCardReader reader;
+
+    QObject::connect(&reader, &SmartCardReader::stateChanged, [](SmartCardReader::ReaderState state) {
+        qDebug() << "Reader State Changed:" << static_cast<int>(state);
+    });
+
+    QObject::connect(&reader, &SmartCardReader::cardDataRead, [](const QByteArray &data) {
+        qDebug() << "Card UID:" << data.toHex().toUpper();
+    });
+
+    QObject::connect(&reader, &SmartCardReader::errorOccurred, [](const QString &error) {
+        qDebug() << "Error:" << error;
+    });
+
+    reader.start();
+
+    return a.exec();
+}
