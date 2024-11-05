@@ -1,34 +1,3 @@
-#ifndef SMARTCARDREADER_H
-#define SMARTCARDREADER_H
-
-#include <string>
-#include <vector>
-
-class SmartCardReader
-{
-public:
-    SmartCardReader();
-    ~SmartCardReader();
-
-    bool initialize();
-    std::vector<std::string> listReaders();
-    bool connect(const std::string& readerName);
-    bool isValid();
-
-private:
-    void* hContext;
-    void* hCard;
-    unsigned long dwActiveProtocol;
-};
-
-#endif // SMARTCARDREADER_H
-
-
-
-
-
-
-
 #include "SmartCardReader.h"
 #include <iostream>
 #include <cstring>
@@ -85,7 +54,7 @@ std::vector<std::string> SmartCardReader::listReaders()
     DWORD dwReaders = SCARD_AUTOALLOCATE;
     char* mszReaders = nullptr;
 
-    // Use the ANSI version of SCardListReaders explicitly
+    // Use the appropriate function based on the platform
 #ifdef _WIN32
     LONG rv = SCardListReadersA((SCARDCONTEXT)hContext, NULL, (LPSTR)&mszReaders, &dwReaders);
 #else
@@ -107,11 +76,7 @@ std::vector<std::string> SmartCardReader::listReaders()
     }
 
     // Free the allocated memory
-#ifdef _WIN32
     SCardFreeMemory((SCARDCONTEXT)hContext, mszReaders);
-#else
-    SCardFreeMemory((SCARDCONTEXT)hContext, mszReaders);
-#endif
 
     return readers;
 }
@@ -124,9 +89,17 @@ bool SmartCardReader::connect(const std::string& readerName)
         return false;
     }
 
+    // Use the appropriate function based on the platform
+#ifdef _WIN32
     LONG rv = SCardConnectA((SCARDCONTEXT)hContext, readerName.c_str(),
                             SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
                             (SCARDHANDLE*)&hCard, &dwActiveProtocol);
+#else
+    LONG rv = SCardConnect((SCARDCONTEXT)hContext, readerName.c_str(),
+                           SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+                           (SCARDHANDLE*)&hCard, &dwActiveProtocol);
+#endif
+
     if (rv != SCARD_S_SUCCESS)
     {
         std::cerr << "Failed to connect to reader: " << rv << std::endl;
@@ -150,8 +123,15 @@ bool SmartCardReader::isValid()
     BYTE pbAtr[33];
     DWORD dwAtrLen = sizeof(pbAtr);
 
+    // Use the appropriate function based on the platform
+#ifdef _WIN32
     LONG rv = SCardStatusA((SCARDHANDLE)hCard, NULL, NULL, &dwState,
                            &dwProtocol, pbAtr, &dwAtrLen);
+#else
+    LONG rv = SCardStatus((SCARDHANDLE)hCard, NULL, NULL, &dwState,
+                          &dwProtocol, pbAtr, &dwAtrLen);
+#endif
+
     if (rv != SCARD_S_SUCCESS)
     {
         std::cerr << "Failed to get card status: " << rv << std::endl;
@@ -159,56 +139,4 @@ bool SmartCardReader::isValid()
     }
 
     return (dwState & SCARD_PRESENT) != 0;
-}
-
-
-
-
-
-
-
-
-
-
-#include "SmartCardReader.h"
-#include <iostream>
-
-int main()
-{
-    SmartCardReader reader;
-
-    if (!reader.initialize())
-    {
-        return -1;
-    }
-
-    auto readers = reader.listReaders();
-    if (readers.empty())
-    {
-        std::cerr << "No readers found." << std::endl;
-        return -1;
-    }
-
-    std::cout << "Available readers:" << std::endl;
-    for (const auto& name : readers)
-    {
-        std::cout << " - " << name << std::endl;
-    }
-
-    // Connect to the first reader
-    if (!reader.connect(readers[0]))
-    {
-        return -1;
-    }
-
-    if (reader.isValid())
-    {
-        std::cout << "Card is present and valid." << std::endl;
-    }
-    else
-    {
-        std::cout << "Card is not valid or not present." << std::endl;
-    }
-
-    return 0;
 }
