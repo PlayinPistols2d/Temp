@@ -1,36 +1,25 @@
-
-std::vector<std::string> SmartCardReader::listReaders()
+bool SmartCardReader::connect(const std::string& readerName)
 {
-    std::vector<std::string> readers;
-    LONG result;
-    LPTSTR mszReaders = NULL;
-    DWORD dwReaders = SCARD_AUTOALLOCATE;
-
-    result = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
-    if (result != SCARD_S_SUCCESS)
-    {
-        std::cerr << "SCardListReaders failed: " << result << std::endl;
-        return readers;
-    }
+    disconnect();
 
 #ifdef _WIN32
-    LPTSTR pReader = mszReaders;
-    while (*pReader)
-    {
-        std::wstring wReaderName(pReader);
-        std::string readerName(wReaderName.begin(), wReaderName.end());
-        readers.push_back(readerName);
-        pReader += wcslen(pReader) + 1;
-    }
+#ifdef UNICODE
+    // Convert std::string to std::wstring
+    std::wstring wReaderName(readerName.begin(), readerName.end());
+    LPCWSTR szReader = wReaderName.c_str();
 #else
-    char* pReader = mszReaders;
-    while (*pReader)
-    {
-        readers.push_back(std::string(pReader));
-        pReader += strlen(pReader) + 1;
-    }
+    LPCSTR szReader = readerName.c_str();
+#endif
+#else
+    const char* szReader = readerName.c_str();
 #endif
 
-    SCardFreeMemory(hContext, mszReaders);
-    return readers;
+    LONG result = SCardConnect(hContext, szReader, SCARD_SHARE_SHARED,
+                               SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &hCard, &dwActiveProtocol);
+    if (result != SCARD_S_SUCCESS)
+    {
+        std::cerr << "SCardConnect failed: " << result << std::endl;
+        return false;
+    }
+    return true;
 }
