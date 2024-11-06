@@ -68,11 +68,6 @@ private:
 
 
 
-
-
-
-
-
 #include "SmartCardReader.h"
 #include <QDebug>
 #include <QThread>
@@ -327,10 +322,3 @@ int main(int argc, char *argv[])
 
     return a.exec();
 }
-
-
-
-
-
-
-
