@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION manage_task_priority()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER AS $body$
 DECLARE
     max_priority INT;
 BEGIN
@@ -58,4 +58,4 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$body$ LANGUAGE plpgsql;
