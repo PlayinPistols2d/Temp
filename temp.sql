@@ -32,15 +32,34 @@ BEGIN
             SET priority = priority - 1
             WHERE parent_operation_id IS NULL
             AND priority > OLD.priority;
+
+            -- Reorder priorities to remove gaps
+            UPDATE tasks
+            SET priority = sub.new_priority
+            FROM (
+                SELECT id, ROW_NUMBER() OVER (ORDER BY priority) AS new_priority
+                FROM tasks
+                WHERE parent_operation_id IS NULL
+            ) AS sub
+            WHERE tasks.id = sub.id;
         ELSE
             -- Adjust priorities of sibling tasks
             UPDATE tasks
             SET priority = priority - 1
             WHERE parent_operation_id = OLD.parent_operation_id
             AND priority > OLD.priority;
+
+            -- Reorder priorities to remove gaps
+            UPDATE tasks
+            SET priority = sub.new_priority
+            FROM (
+                SELECT id, ROW_NUMBER() OVER (ORDER BY priority) AS new_priority
+                FROM tasks
+                WHERE parent_operation_id = OLD.parent_operation_id
+            ) AS sub
+            WHERE tasks.id = sub.id;
         END IF;
 
-        -- Allow delete operation to proceed without conflict
         RETURN OLD;
 
     ELSIF TG_OP = 'UPDATE' THEN
