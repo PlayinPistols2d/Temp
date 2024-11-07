@@ -9,6 +9,9 @@
 #include <vector>
 #include <winscard.h>
 
+#define MAX_ATR_SIZE 33
+#define MAX_READERNAME 256
+
 enum class ReaderState {
     CONNECTING,
     CONNECTED,
@@ -28,12 +31,11 @@ private:
     void listReaders();
     void connectToCard();
     void disconnectFromCard();
-    void getCardInformation();
-    void sendCommand(const std::vector<uint8_t>& command);
+    void readCardUID();
     void monitorReader();
 
     SCARDCONTEXT applicationContext;
-    LPSTR reader;
+    LPTSTR reader;
     SCARDHANDLE connectionHandler;
     DWORD activeProtocol;
     std::atomic<ReaderState> state;
@@ -42,6 +44,9 @@ private:
 };
 
 #endif // SMARTCARDREADER_H
+
+
+
 
 
 
@@ -82,21 +87,24 @@ void SmartCardReader::establishContext() {
 }
 
 void SmartCardReader::releaseContext() {
-    LONG status = SCardReleaseContext(applicationContext);
-    if (status != SCARD_S_SUCCESS) {
-        std::cerr << "Release context error: " << pcsc_stringify_error(status) << std::endl;
-    } else {
-        std::cout << "Context released" << std::endl;
+    if (applicationContext) {
+        LONG status = SCardReleaseContext(applicationContext);
+        if (status == SCARD_S_SUCCESS) {
+            std::cout << "Context released" << std::endl;
+        } else {
+            std::cerr << "Release context error: " << pcsc_stringify_error(status) << std::endl;
+        }
     }
 }
 
 void SmartCardReader::listReaders() {
     DWORD readersSize = SCARD_AUTOALLOCATE;
-    LONG status = SCardListReaders(applicationContext, nullptr, (LPSTR)&reader, &readersSize);
+    LONG status = SCardListReaders(applicationContext, nullptr, (LPTSTR)&reader, &readersSize);
     if (status == SCARD_S_SUCCESS) {
-        std::cout << "Reader found: " << reader << std::endl;
+        std::wcout << L"Reader found: " << reader << std::endl;
     } else {
         std::cerr << "List reader error: " << pcsc_stringify_error(status) << std::endl;
+        reader = nullptr;
     }
 }
 
@@ -112,7 +120,7 @@ void SmartCardReader::connectToCard() {
         if (status == SCARD_S_SUCCESS) {
             state = ReaderState::CONNECTED;
             std::cout << "Connected to card" << std::endl;
-            getCardInformation();
+            readCardUID();
         } else {
             state = ReaderState::DISCONNECTED;
             std::cerr << "Card connection error: " << pcsc_stringify_error(status) << std::endl;
@@ -123,53 +131,33 @@ void SmartCardReader::connectToCard() {
 void SmartCardReader::disconnectFromCard() {
     if (state == ReaderState::CONNECTED) {
         LONG status = SCardDisconnect(connectionHandler, SCARD_LEAVE_CARD);
-        if (status != SCARD_S_SUCCESS) {
-            std::cerr << "Card disconnection error: " << pcsc_stringify_error(status) << std::endl;
-        } else {
+        if (status == SCARD_S_SUCCESS) {
             std::cout << "Disconnected from card" << std::endl;
+        } else {
+            std::cerr << "Card disconnection error: " << pcsc_stringify_error(status) << std::endl;
         }
     }
     state = ReaderState::DISCONNECTED;
 }
 
-void SmartCardReader::getCardInformation() {
-    BYTE ATR[MAX_ATR_SIZE] = { 0 };
-    DWORD ATRLength = sizeof(ATR);
+void SmartCardReader::readCardUID() {
+    BYTE atr[MAX_ATR_SIZE] = { 0 };
+    DWORD atrLength = sizeof(atr);
     char readerName[MAX_READERNAME] = { 0 };
     DWORD readerLength = sizeof(readerName);
     DWORD readerState, readerProtocol;
 
-    LONG status = SCardStatus(connectionHandler, readerName, &readerLength, &readerState, &readerProtocol, ATR, &ATRLength);
+    LONG status = SCardStatus(connectionHandler, readerName, &readerLength, &readerState, &readerProtocol, atr, &atrLength);
     if (status == SCARD_S_SUCCESS) {
-        std::cout << "Reader Name: " << readerName << "\nATR: ";
-        for (DWORD i = 0; i < ATRLength; i++) {
-            std::printf("%02X ", ATR[i]);
+        std::cout << "Reading card UID...\nATR: ";
+        for (DWORD i = 0; i < atrLength; i++) {
+            std::printf("%02X ", atr[i]);
         }
         std::cout << std::endl;
     } else {
         std::cerr << "Get card information error: " << pcsc_stringify_error(status) << std::endl;
-    }
-}
-
-void SmartCardReader::sendCommand(const std::vector<uint8_t>& command) {
-    SCARD_IO_REQUEST pioRecvPci;
-    const SCARD_IO_REQUEST* pioSendPci = (activeProtocol == SCARD_PROTOCOL_T0) ? SCARD_PCI_T0 : SCARD_PCI_T1;
-    uint8_t response[300] = { 0 };
-    unsigned long responseLength = sizeof(response);
-
-    LONG status = SCardTransmit(connectionHandler, pioSendPci, command.data(), command.size(), &pioRecvPci, response, &responseLength);
-    if (status == SCARD_S_SUCCESS) {
-        std::cout << "Command sent: ";
-        for (uint8_t byte : command) {
-            std::printf("%02X ", byte);
-        }
-        std::cout << "\nResponse: ";
-        for (unsigned long i = 0; i < responseLength; i++) {
-            std::printf("%02X ", response[i]);
-        }
-        std::cout << std::endl;
-    } else {
-        std::cerr << "Send command error: " << pcsc_stringify_error(status) << std::endl;
+        disconnectFromCard();
+        state = ReaderState::DISCONNECTED;
     }
 }
 
@@ -178,9 +166,12 @@ void SmartCardReader::monitorReader() {
         if (state == ReaderState::DISCONNECTED || state == ReaderState::CONNECTING) {
             connectToCard();
         }
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 }
+
+
+
 
 
 
@@ -197,4 +188,3 @@ int main() {
     reader.stop();
     return 0;
 }
-
