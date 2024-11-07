@@ -1,265 +1,261 @@
-#ifndef SMARTCARDREADER_H
-#define SMARTCARDREADER_H
-
-#include <winscard.h>
-#include <QString>
-#include <QByteArray>
-#include <QObject>
-#include <QFuture>
-#include <QFutureWatcher>
-#include <QThreadPool>
-#include <QMetaObject>
-
-/**
- * @brief The SmartCardReader class handles NFC card reader operations and runs them in a separate thread.
- */
-class SmartCardReader : public QObject
-{
-    Q_OBJECT
-public:
-    explicit SmartCardReader(QObject *parent = nullptr);
-    ~SmartCardReader();
-
-    void startMonitoring();
-    void stopMonitoring();
-
-    enum ReaderState {
-        Connected,
-        Disconnected,
-        Connecting
-    };
-
-signals:
-    void cardInserted();
-    void cardRemoved();
-    void cardDataRead(const QByteArray &data);
-    void errorOccurred(const QString &error);
-    void readerStateChanged(ReaderState state);
-
-private:
-    SCARDCONTEXT hContext;
-    QString readerName;
-    QString errorMessage;
-    bool cardPresent;
-    ReaderState currentState;
-    bool isMonitoring;
-
-    void monitorCardStatus();
-    bool readCardData(QByteArray &cardData);
-    void checkForReaderConnection();
-    void setReaderState(ReaderState state);
-};
-
-#endif // SMARTCARDREADER_H
-
-
-
-
-
-
-
-
-
 #include "SmartCardReader.h"
 #include <QDebug>
-#include <QtConcurrent/QtConcurrent>
+#include <QThread>
+#include <exception>
 
 #define IOCTL_SMARTCARD_VENDOR_IFD_EXCHANGE SCARD_CTL_CODE(2048)
 
 SmartCardReader::SmartCardReader(QObject *parent)
-    : QObject(parent),
+    : QThread(parent),
       hContext(0),
-      cardPresent(false),
-      currentState(Disconnected),
-      isMonitoring(false)
+      isMonitoring(false),
+      cardPresent(false),  // Initialize the card presence flag
+      currentState(Disconnected)  // Initial state
 {
 }
 
 SmartCardReader::~SmartCardReader()
 {
-    stopMonitoring();
-    if (hContext != 0) {
-        SCardReleaseContext(hContext);
+    try {
+        stopMonitoring();
+        wait();  // Wait for the thread to finish
+        if (hContext != 0) {
+            SCardReleaseContext(hContext);
+        }
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in destructor:" << ex.what();
+    } catch (...) {
+        qDebug() << "Unknown exception in destructor.";
     }
 }
 
-void SmartCardReader::startMonitoring()
+bool SmartCardReader::initialize()
 {
-    isMonitoring = true;
-    QtConcurrent::run([this]() {
+    try {
+        if (hContext != 0) {
+            SCardReleaseContext(hContext);
+            hContext = 0;
+        }
+
+        setReaderState(Connecting);
+        LONG lReturn = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
+        if (lReturn != SCARD_S_SUCCESS) {
+            errorMessage = QString("Failed to establish context: 0x%1")
+                               .arg(QString::number(lReturn, 16).toUpper());
+            emit errorOccurred(errorMessage);
+            setReaderState(Disconnected);
+            return false;  // Do not exit, continue waiting in the run loop
+        }
+
+        // Try to find a reader, but don't return false if none is found initially
+        checkForReaderConnection();
+        return true;  // Always return true to keep the app running
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in initialize:" << ex.what();
+        emit errorOccurred("Exception in initialize: " + QString::fromStdString(ex.what()));
+        setReaderState(Disconnected);
+        return false;
+    } catch (...) {
+        qDebug() << "Unknown exception in initialize.";
+        emit errorOccurred("Unknown exception in initialize.");
+        setReaderState(Disconnected);
+        return false;
+    }
+}
+
+void SmartCardReader::run()
+{
+    try {
+        isMonitoring = true;
         while (isMonitoring) {
             if (currentState == Disconnected) {
                 setReaderState(Connecting);
-                if (hContext == 0) {
-                    LONG lReturn = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &hContext);
-                    if (lReturn != SCARD_S_SUCCESS) {
-                        emit errorOccurred(QString("Failed to establish context: 0x%1").arg(QString::number(lReturn, 16).toUpper()));
-                        setReaderState(Disconnected);
-                        QThread::sleep(1);
-                        continue;
-                    }
-                }
-                checkForReaderConnection();
-                QThread::sleep(1);  // Sleep before checking again to avoid high CPU usage
+                initialize();  // Attempt to initialize and find a reader
+                QThread::sleep(1);  // Sleep for a second before retrying to prevent high CPU usage
             } else {
                 monitorCardStatus();
             }
         }
-    });
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in run loop:" << ex.what();
+        emit errorOccurred("Exception in run loop: " + QString::fromStdString(ex.what()));
+    } catch (...) {
+        qDebug() << "Unknown exception in run loop.";
+        emit errorOccurred("Unknown exception in run loop.");
+    }
 }
 
 void SmartCardReader::stopMonitoring()
 {
-    isMonitoring = false;
+    try {
+        isMonitoring = false;
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in stopMonitoring:" << ex.what();
+    } catch (...) {
+        qDebug() << "Unknown exception in stopMonitoring.";
+    }
 }
 
-void SmartCardReader::checkForReaderConnection()
+bool SmartCardReader::checkForReaderConnection()
 {
-    DWORD dwReaders = SCARD_AUTOALLOCATE;
-    LPTSTR mszReaders = NULL;
-    LONG lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
+    try {
+        DWORD dwReaders = SCARD_AUTOALLOCATE;
+        LPTSTR mszReaders = NULL;
+        LONG lReturn = SCardListReaders(hContext, NULL, (LPTSTR)&mszReaders, &dwReaders);
 
-    if (lReturn != SCARD_S_SUCCESS || dwReaders == 0) {
-        QMetaObject::invokeMethod(this, [this]() {
+        if (lReturn != SCARD_S_SUCCESS || dwReaders == 0) {
             emit errorOccurred("No reader found or failed to list readers.");
             setReaderState(Disconnected);
-        }, Qt::QueuedConnection);
-        if (mszReaders) {
-            SCardFreeMemory(hContext, mszReaders);
+            if (mszReaders) {
+                SCardFreeMemory(hContext, mszReaders);
+            }
+            return false;
         }
-        return;
-    }
 
-    QString newReaderName = QString::fromWCharArray(mszReaders);
-    SCardFreeMemory(hContext, mszReaders);
+        // Select the first available reader
+        QString newReaderName = QString::fromWCharArray(mszReaders);
+        SCardFreeMemory(hContext, mszReaders);
 
-    if (readerName != newReaderName) {
-        readerName = newReaderName;
-        QMetaObject::invokeMethod(this, [this]() {
+        if (readerName != newReaderName) {
+            readerName = newReaderName;
             setReaderState(Connected);
             qDebug() << "Reader connected:" << readerName;
-        }, Qt::QueuedConnection);
+        }
+
+        return true;
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in checkForReaderConnection:" << ex.what();
+        emit errorOccurred("Exception in checkForReaderConnection: " + QString::fromStdString(ex.what()));
+        setReaderState(Disconnected);
+        return false;
+    } catch (...) {
+        qDebug() << "Unknown exception in checkForReaderConnection.";
+        emit errorOccurred("Unknown exception in checkForReaderConnection.");
+        setReaderState(Disconnected);
+        return false;
     }
 }
 
 void SmartCardReader::monitorCardStatus()
 {
-    SCARD_READERSTATE readerState;
-    readerState.szReader = (LPCWSTR)readerName.utf16();
-    readerState.pvUserData = NULL;
-    readerState.dwCurrentState = SCARD_STATE_UNAWARE;
-    readerState.dwEventState = 0;
-    readerState.cbAtr = 0;
+    try {
+        SCARD_READERSTATE readerState;
+        readerState.szReader = (LPCWSTR)readerName.utf16();
+        readerState.pvUserData = NULL;
+        readerState.dwCurrentState = SCARD_STATE_UNAWARE;
+        readerState.dwEventState = 0;
+        readerState.cbAtr = 0;
 
-    while (isMonitoring && currentState == Connected) {
-        readerState.dwCurrentState = readerState.dwEventState;
-        LONG lReturn = SCardGetStatusChange(hContext, 500, &readerState, 1);
+        while (isMonitoring && currentState == Connected) {
+            readerState.dwCurrentState = readerState.dwEventState;
+            LONG lReturn = SCardGetStatusChange(hContext, 500, &readerState, 1);
 
-        if (lReturn == SCARD_S_SUCCESS) {
-            if ((readerState.dwEventState & SCARD_STATE_CHANGED)) {
-                if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent) {
-                    cardPresent = true;
-                    QMetaObject::invokeMethod(this, &SmartCardReader::cardInserted, Qt::QueuedConnection);
+            if (lReturn == SCARD_S_SUCCESS) {
+                if ((readerState.dwEventState & SCARD_STATE_CHANGED)) {
+                    if ((readerState.dwEventState & SCARD_STATE_PRESENT) && !cardPresent) {
+                        cardPresent = true;
+                        emit cardInserted();
 
-                    QByteArray cardData;
-                    if (readCardData(cardData)) {
-                        QMetaObject::invokeMethod(this, [cardData]() {
+                        QByteArray cardData;
+                        if (readCardData(cardData)) {
                             emit cardDataRead(cardData);
-                        }, Qt::QueuedConnection);
-                    } else {
-                        QMetaObject::invokeMethod(this, [this]() {
+                        } else {
                             emit errorOccurred(errorMessage);
-                        }, Qt::QueuedConnection);
+                        }
+                    } else if (!(readerState.dwEventState & SCARD_STATE_PRESENT) && cardPresent) {
+                        cardPresent = false;
+                        emit cardRemoved();
                     }
-                } else if (!(readerState.dwEventState & SCARD_STATE_PRESENT) && cardPresent) {
-                    cardPresent = false;
-                    QMetaObject::invokeMethod(this, &SmartCardReader::cardRemoved, Qt::QueuedConnection);
                 }
-            }
-        } else if (lReturn == SCARD_E_READER_UNAVAILABLE || lReturn == SCARD_E_NO_READERS_AVAILABLE) {
-            QMetaObject::invokeMethod(this, [this]() {
+            } else if (lReturn == SCARD_E_READER_UNAVAILABLE || lReturn == SCARD_E_NO_READERS_AVAILABLE) {
                 qDebug() << "Reader disconnected, attempting to reconnect...";
                 setReaderState(Disconnected);
-                readerName.clear();
-            }, Qt::QueuedConnection);
-            break;
-        } else if (lReturn != SCARD_E_TIMEOUT) {
-            QMetaObject::invokeMethod(this, [this, lReturn]() {
-                emit errorOccurred(QString("SCardGetStatusChange failed: 0x%1").arg(QString::number(lReturn, 16).toUpper()));
+                readerName.clear();  // Clear the reader name to force detection
+                break;
+            } else if (lReturn != SCARD_E_TIMEOUT) {
+                errorMessage = QString("SCardGetStatusChange failed: 0x%1")
+                                   .arg(QString::number(lReturn, 16).toUpper());
+                emit errorOccurred(errorMessage);
                 setReaderState(Disconnected);
-                readerName.clear();
-            }, Qt::QueuedConnection);
-            break;
+                readerName.clear();  // Clear the reader name to force detection
+                break;
+            }
         }
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in monitorCardStatus:" << ex.what();
+        emit errorOccurred("Exception in monitorCardStatus: " + QString::fromStdString(ex.what()));
+        setReaderState(Disconnected);
+    } catch (...) {
+        qDebug() << "Unknown exception in monitorCardStatus.";
+        emit errorOccurred("Unknown exception in monitorCardStatus.");
+        setReaderState(Disconnected);
     }
 }
 
 bool SmartCardReader::readCardData(QByteArray &cardData)
 {
-    SCARDHANDLE hCard;
-    DWORD dwActiveProtocol;
+    try {
+        SCARDHANDLE hCard;
+        DWORD dwActiveProtocol;
 
-    LONG lReturn = SCardConnect(hContext,
-                                (LPCWSTR)readerName.utf16(),
-                                SCARD_SHARE_SHARED,
-                                SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
-                                &hCard,
-                                &dwActiveProtocol);
-    if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to connect to card: 0x%1")
-                           .arg(QString::number(lReturn, 16).toUpper());
-        return false;
-    }
-
-    QByteArray apduCommand = QByteArray::fromHex("FFCA000000");
-    SCARD_IO_REQUEST pioSendPci = (dwActiveProtocol == SCARD_PROTOCOL_T0) ? *SCARD_PCI_T0 : *SCARD_PCI_T1;
-
-    BYTE pbRecvBuffer[258];
-    DWORD cbRecvLength = sizeof(pbRecvBuffer);
-
-    lReturn = SCardTransmit(hCard,
-                            &pioSendPci,
-                            (LPCBYTE)apduCommand.constData(),
-                            apduCommand.size(),
-                            NULL,
-                            pbRecvBuffer,
-                            &cbRecvLength);
-
-    SCardDisconnect(hCard, SCARD_LEAVE_CARD);
-
-    if (lReturn != SCARD_S_SUCCESS) {
-        errorMessage = QString("Failed to transmit APDU: 0x%1")
-                           .arg(QString::number(lReturn, 16).toUpper());
-        return false;
-    }
-
-    if (cbRecvLength >= 2) {
-        BYTE sw1 = pbRecvBuffer[cbRecvLength - 2];
-        BYTE sw2 = pbRecvBuffer[cbRecvLength - 1];
-        if (sw1 == 0x90 && sw2 == 0x00) {
-            int uidLength = cbRecvLength - 2;
-            cardData = QByteArray(reinterpret_cast<char*>(pbRecvBuffer), uidLength);
-            return true;
-        } else {
-            errorMessage = QString("APDU command failed with status: %1 %2")
-                               .arg(QString("%1").arg(sw1, 2, 16, QChar('0')).toUpper())
-                               .arg(QString("%1").arg(sw2, 2, 16, QChar('0')).toUpper());
+        LONG lReturn = SCardConnect(hContext,
+                                    (LPCWSTR)readerName.utf16(),
+                                    SCARD_SHARE_SHARED,
+                                    SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+                                    &hCard,
+                                    &dwActiveProtocol);
+        if (lReturn != SCARD_S_SUCCESS) {
+            errorMessage = QString("Failed to connect to card: 0x%1")
+                               .arg(QString::number(lReturn, 16).toUpper());
             return false;
         }
-    } else {
-        errorMessage = "Invalid response from card.";
-        return false;
-    }
-}
 
-void SmartCardReader::setReaderState(ReaderState state)
-{
-    if (currentState != state) {
-        currentState = state;
-        QMetaObject::invokeMethod(this, [this, state]() {
-            emit readerStateChanged(state);
-            qDebug() << "Reader state changed to:" << (state == Connected ? "Connected" :
-                                                        state == Connecting ? "Connecting" : "Disconnected");
-        }, Qt::QueuedConnection);
+        QByteArray apduCommand = QByteArray::fromHex("FFCA000000");
+        SCARD_IO_REQUEST pioSendPci = (dwActiveProtocol == SCARD_PROTOCOL_T0) ? *SCARD_PCI_T0 : *SCARD_PCI_T1;
+
+        BYTE pbRecvBuffer[258];
+        DWORD cbRecvLength = sizeof(pbRecvBuffer);
+
+        lReturn = SCardTransmit(hCard,
+                                &pioSendPci,
+                                (LPCBYTE)apduCommand.constData(),
+                                apduCommand.size(),
+                                NULL,
+                                pbRecvBuffer,
+                                &cbRecvLength);
+
+        SCardDisconnect(hCard, SCARD_LEAVE_CARD);
+
+        if (lReturn != SCARD_S_SUCCESS) {
+            errorMessage = QString("Failed to transmit APDU: 0x%1")
+                               .arg(QString::number(lReturn, 16).toUpper());
+            return false;
+        }
+
+        if (cbRecvLength >= 2) {
+            BYTE sw1 = pbRecvBuffer[cbRecvLength - 2];
+            BYTE sw2 = pbRecvBuffer[cbRecvLength - 1];
+            if (sw1 == 0x90 && sw2 == 0x00) {
+                int uidLength = cbRecvLength - 2;
+                cardData = QByteArray(reinterpret_cast<char*>(pbRecvBuffer), uidLength);
+                return true;
+            } else {
+                errorMessage = QString("APDU command failed with status: %1 %2")
+                                   .arg(QString("%1").arg(sw1, 2, 16, QChar('0')).toUpper())
+                                   .arg(QString("%1").arg(sw2, 2, 16, QChar('0')).toUpper());
+                return false;
+            }
+        } else {
+            errorMessage = "Invalid response from card.";
+            return false;
+        }
+    } catch (const std::exception &ex) {
+        qDebug() << "Exception in readCardData:" << ex.what();
+        emit errorOccurred("Exception in readCardData: " + QString::fromStdString(ex.what()));
+        return false;
+    } catch (...) {
+        qDebug() << "Unknown exception in readCardData.";
+        emit errorOccurred("Unknown exception in readCardData.");
+        return false;
     }
 }
