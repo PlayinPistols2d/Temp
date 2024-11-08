@@ -1,4 +1,6 @@
 #include "SmartCardReader.h"
+#include <thread>  // For sleep_for
+#include <chrono>  // For seconds
 
 SmartCardReader::SmartCardReader()
     : hContext(0), hCard(0), activeProtocol(0) {}
@@ -39,13 +41,38 @@ bool SmartCardReader::initialize() {
     }
 }
 
+bool SmartCardReader::checkCardPresence() {
+    if (readerName.isEmpty()) return false;
+
+    QByteArray readerNameBytes = readerName.toLocal8Bit();
+    LPCSTR readerNameCStr = readerNameBytes.constData();
+
+    DWORD dwState, dwProtocol;
+    DWORD dwAtrLen = MAX_ATR_SIZE;
+    BYTE pbAtr[MAX_ATR_SIZE];
+
+    LONG result = SCardStatus(hCard, readerNameCStr, NULL, &dwState, &dwProtocol, pbAtr, &dwAtrLen);
+    
+    if (result == SCARD_S_SUCCESS && (dwState & SCARD_PRESENT)) {
+        return true;
+    } else {
+        qDebug() << "Card not present in the reader.";
+        return false;
+    }
+}
+
 bool SmartCardReader::connectToReader() {
     if (readerName.isEmpty()) {
         qDebug() << "No reader available.";
         return false;
     }
 
-    // Convert reader name to const char* for SCardConnect
+    // Check if card is present before connecting
+    while (!checkCardPresence()) {
+        qDebug() << "Waiting for a card...";
+        std::this_thread::sleep_for(std::chrono::seconds(1));  // Delay before retrying
+    }
+
     QByteArray readerNameBytes = readerName.toLocal8Bit();
     LPCSTR readerNameCStr = readerNameBytes.constData();
 
