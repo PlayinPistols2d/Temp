@@ -1,33 +1,3 @@
-#ifndef SMARTCARDREADER_H
-#define SMARTCARDREADER_H
-
-#include <winscard.h>
-#include <QString>
-#include <QDebug>
-
-class SmartCardReader {
-public:
-    SmartCardReader();
-    ~SmartCardReader();
-
-    bool initialize();
-    bool connectToReader();
-    void disconnectReader();
-    QString getReaderName() const;
-
-private:
-    SCARDCONTEXT hContext;
-    SCARDHANDLE hCard;
-    DWORD activeProtocol;
-    QString readerName;
-};
-
-#endif // SMARTCARDREADER_H
-
-
-
-
-
 #include "SmartCardReader.h"
 
 SmartCardReader::SmartCardReader()
@@ -54,7 +24,8 @@ bool SmartCardReader::initialize() {
         return false;
     }
 
-    char *readers = new char[readersLen];
+    // Allocate memory for reader names
+    char* readers = new char[readersLen];
     result = SCardListReaders(hContext, NULL, readers, &readersLen);
     if (result == SCARD_S_SUCCESS) {
         readerName = QString::fromLocal8Bit(readers);
@@ -74,7 +45,11 @@ bool SmartCardReader::connectToReader() {
         return false;
     }
 
-    LONG result = SCardConnect(hContext, readerName.toLocal8Bit().constData(), SCARD_SHARE_SHARED,
+    // Convert reader name to const char* for SCardConnect
+    QByteArray readerNameBytes = readerName.toLocal8Bit();
+    LPCSTR readerNameCStr = readerNameBytes.constData();
+
+    LONG result = SCardConnect(hContext, readerNameCStr, SCARD_SHARE_SHARED,
                                SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &hCard, &activeProtocol);
     
     if (result == SCARD_S_SUCCESS) {
@@ -95,32 +70,4 @@ void SmartCardReader::disconnectReader() {
 
 QString SmartCardReader::getReaderName() const {
     return readerName;
-}
-
-
-
-
-
-#include <QCoreApplication>
-#include "SmartCardReader.h"
-
-int main(int argc, char *argv[]) {
-    QCoreApplication app(argc, argv);
-
-    SmartCardReader reader;
-
-    if (reader.initialize()) {
-        qDebug() << "Reader initialized:" << reader.getReaderName();
-        
-        if (reader.connectToReader()) {
-            qDebug() << "Connection to reader successful!";
-            reader.disconnectReader();
-        } else {
-            qDebug() << "Failed to connect to the reader.";
-        }
-    } else {
-        qDebug() << "Failed to initialize reader.";
-    }
-
-    return app.exec();
 }
