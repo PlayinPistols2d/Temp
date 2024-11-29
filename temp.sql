@@ -1,16 +1,14 @@
-DO $$
-DECLARE
-    new_id INTEGER; -- Declaring the variable
-BEGIN
-    -- Insert query to capture the returning ID
-    INSERT INTO my_table (column1, column2)
-    VALUES ('value1', 'value2')
-    RETURNING id INTO new_id;
+BEGIN;
 
-    -- Use the variable in subsequent queries
-    INSERT INTO another_table (foreign_key_column, other_column)
-    VALUES (new_id, 'other_value1');
+-- Шаг 1: Инсерт в первую таблицу
+INSERT INTO first_table (column1, column2)
+VALUES ('value1', 'value2');
 
-    INSERT INTO yet_another_table (related_id, description)
-    VALUES (new_id, 'some description');
-END $$;
+-- Шаг 2: Получение последнего вставленного ID
+SELECT LASTVAL() INTO last_inserted_id;
+
+-- Шаг 3: Использование этого ID для инсерта во вторую таблицу
+INSERT INTO second_table (first_table_id, other_column)
+VALUES (last_inserted_id, 'value_for_second_table');
+
+COMMIT;
