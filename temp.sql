@@ -1,18 +1,16 @@
-WITH first_insert AS (
-    INSERT INTO your_table (column1, column2)
+DO $$
+DECLARE
+    new_id INTEGER; -- Declaring the variable
+BEGIN
+    -- Insert query to capture the returning ID
+    INSERT INTO my_table (column1, column2)
     VALUES ('value1', 'value2')
-    RETURNING id AS first_id
-),
-second_insert AS (
-    INSERT INTO your_table (column1, column2, parent_id)
-    VALUES ('value3', 'value4', (SELECT first_id FROM first_insert))
-    RETURNING id AS second_id
-),
-third_insert AS (
-    INSERT INTO your_table (column1, column2, parent_id)
-    VALUES ('value5', 'value6', (SELECT second_id FROM second_insert))
-    RETURNING id AS third_id
-)
-INSERT INTO final_table (foreign_key, column)
-SELECT third_id, 'final_value'
-FROM third_insert;
+    RETURNING id INTO new_id;
+
+    -- Use the variable in subsequent queries
+    INSERT INTO another_table (foreign_key_column, other_column)
+    VALUES (new_id, 'other_value1');
+
+    INSERT INTO yet_another_table (related_id, description)
+    VALUES (new_id, 'some description');
+END $$;
