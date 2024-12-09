@@ -1,58 +1,44 @@
-// CustomSelector.cpp
-#include "CustomSelector.h"
-#include <QStandardItem>
+#include "CustomLineEdit.h"
+#include <QFocusEvent>
 #include <QMouseEvent>
-#include <QKeyEvent>
 #include <QApplication>
-#include <QDesktopWidget>
-#include <QStyle>
+#include <QAbstractItemView>
 
-CustomSelector::CustomSelector(QWidget *parent)
-    : QWidget(parent),
-      m_lineEdit(new QLineEdit(this)),
-      m_popupFrame(new QFrame(this, Qt::Popup)),
-      m_listView(new QListView(m_popupFrame)),
-      m_model(new QStandardItemModel(this)),
-      m_proxyModel(new QSortFilterProxyModel(this))
+CustomLineEdit::CustomLineEdit(QWidget *parent)
+    : QLineEdit(parent),
+      m_completer(new QCompleter(this)),
+      m_model(new QStandardItemModel(this))
 {
-    // Setup layout
-    auto layout = new QVBoxLayout(this);
-    layout->setMargin(0);
-    layout->addWidget(m_lineEdit);
-    setLayout(layout);
+    // Setup model and completer
+    m_completer->setModel(m_model);
+    m_completer->setCompletionMode(QCompleter::PopupCompletion);
+    m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+    m_completer->setFilterMode(Qt::MatchContains); 
+    // MatchContains or MatchStartsWith depending on preferred filtering
 
-    // Popup setup
-    m_popupFrame->setFrameStyle(QFrame::Box | QFrame::Raised);
-    m_popupFrame->setLineWidth(1);
-    m_popupFrame->resize(width(), 150); // arbitrary initial size
-    m_popupFrame->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
-
-    // Model and proxy model
-    m_proxyModel->setSourceModel(m_model);
-    m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
-    m_proxyModel->setFilterKeyColumn(0); // assuming first column holds the main text
-
-    m_listView->setModel(m_proxyModel);
-    m_listView->setEditTriggers(QListView::NoEditTriggers);
+    // Set the completer on the line edit
+    setCompleter(m_completer);
 
     // Connect signals
-    connect(m_lineEdit, &QLineEdit::textChanged, this, &CustomSelector::onTextChanged);
-    connect(m_listView, &QListView::clicked, this, &CustomSelector::onItemClicked);
-    connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged,
-            this, &CustomSelector::onCurrentChanged);
+    connect(m_completer, QOverload<const QString &>::of(&QCompleter::activated),
+            this, &CustomLineEdit::onCompletionSelected);
+    connect(m_completer, QOverload<const QString &>::of(&QCompleter::highlighted),
+            this, &CustomLineEdit::onHighlighted);
 
-    // Event filter to catch hover events in listView
-    m_listView->viewport()->installEventFilter(this);
+    // Event filter to detect hover on completer popup
+    if (m_completer->popup()) {
+        m_completer->popup()->viewport()->installEventFilter(this);
+    }
 }
 
-void CustomSelector::addItem(const QString &text, const QString &hint)
+void CustomLineEdit::addItem(const QString &text, const QString &hint)
 {
     QStandardItem *item = new QStandardItem(text);
     item->setData(hint, Qt::UserRole);
     m_model->appendRow(item);
 }
 
-void CustomSelector::setItems(const QList<QPair<QString, QString>> &items)
+void CustomLineEdit::setItems(const QList<QPair<QString, QString>> &items)
 {
     m_model->clear();
     for (auto &pair : items) {
@@ -60,113 +46,99 @@ void CustomSelector::setItems(const QList<QPair<QString, QString>> &items)
     }
 }
 
-void CustomSelector::clearItems()
+void CustomLineEdit::clearItems()
 {
     m_model->clear();
 }
 
-void CustomSelector::setFilterCaseSensitivity(Qt::CaseSensitivity caseSensitivity)
+void CustomLineEdit::setFilterCaseSensitivity(Qt::CaseSensitivity cs)
 {
-    m_proxyModel->setFilterCaseSensitivity(caseSensitivity);
+    m_completer->setCaseSensitivity(cs);
 }
 
-QString CustomSelector::currentText() const
+void CustomLineEdit::focusInEvent(QFocusEvent *e)
 {
-    QModelIndex current = m_listView->currentIndex();
-    if (!current.isValid())
-        return QString();
-    return current.data(Qt::DisplayRole).toString();
+    QLineEdit::focusInEvent(e);
+    // When we focus in, show the completer if there are items
+    if (m_model->rowCount() > 0) {
+        showCompleterPopup();
+    }
 }
 
-QString CustomSelector::currentHint() const
+void CustomLineEdit::mousePressEvent(QMouseEvent *e)
 {
-    QModelIndex current = m_listView->currentIndex();
-    if (!current.isValid())
-        return QString();
-    return hintForIndex(current);
+    QLineEdit::mousePressEvent(e);
+    // On click, also show the completer popup
+    if (m_model->rowCount() > 0) {
+        showCompleterPopup();
+    }
 }
 
-bool CustomSelector::eventFilter(QObject *obj, QEvent *event)
+bool CustomLineEdit::eventFilter(QObject *obj, QEvent *event)
 {
-    if (obj == m_listView->viewport()) {
+    if (obj == m_completer->popup()->viewport()) {
         if (event->type() == QEvent::MouseMove) {
-            // Show hint for hovered item
             QMouseEvent *me = static_cast<QMouseEvent*>(event);
-            QModelIndex idx = m_listView->indexAt(me->pos());
-            if (idx.isValid()) {
-                updateHintDisplay(idx);
+            QModelIndex index = m_completer->popup()->indexAt(me->pos());
+            if (index.isValid()) {
+                showHintForIndex(index);
+            } else {
+                QToolTip::hideText();
             }
         }
     }
-    return QWidget::eventFilter(obj, event);
+    return QLineEdit::eventFilter(obj, event);
 }
 
-void CustomSelector::onTextChanged(const QString &text)
+void CustomLineEdit::onCompletionSelected(const QString &completion)
 {
-    // Filter the model
-    m_proxyModel->setFilterFixedString(text);
-
-    if (!text.isEmpty() && m_proxyModel->rowCount() > 0) {
-        showPopup();
-    } else {
-        hidePopup();
+    // Find the item in the model that matches the completion
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        QModelIndex idx = m_model->index(i, 0);
+        if (idx.data(Qt::DisplayRole).toString() == completion) {
+            QString hint = hintForIndex(idx);
+            emit itemSelected(completion, hint);
+            break;
+        }
     }
 }
 
-void CustomSelector::onItemClicked(const QModelIndex &index)
+void CustomLineEdit::onHighlighted(const QString &highlightedText)
 {
-    if (!index.isValid())
-        return;
-
-    QString selectedText = index.data(Qt::DisplayRole).toString();
-    QString selectedHint = hintForIndex(index);
-    m_lineEdit->setText(selectedText);
-    hidePopup();
-
-    emit itemSelected(selectedText, selectedHint);
-}
-
-void CustomSelector::onCurrentChanged(const QModelIndex &current, const QModelIndex &previous)
-{
-    Q_UNUSED(previous);
-    if (current.isValid()) {
-        updateHintDisplay(current);
+    // On keyboard navigation, highlighted item changes
+    // Show hint for that item if found
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        QModelIndex idx = m_model->index(i, 0);
+        if (idx.data(Qt::DisplayRole).toString() == highlightedText) {
+            showHintForIndex(idx);
+            break;
+        }
     }
 }
 
-QString CustomSelector::hintForIndex(const QModelIndex &index) const
+void CustomLineEdit::showCompleterPopup()
 {
-    QModelIndex sourceIndex = m_proxyModel->mapToSource(index);
-    return sourceIndex.data(Qt::UserRole).toString();
+    // Force the completer to show the popup under current text
+    m_completer->complete();
 }
 
-void CustomSelector::showPopup()
+QString CustomLineEdit::hintForIndex(const QModelIndex &index) const
 {
-    if (m_popupFrame->isVisible()) return;
-
-    // Position the popup below the line edit
-    QPoint below = mapToGlobal(QPoint(0, m_lineEdit->height()));
-    m_popupFrame->move(below);
-    m_popupFrame->resize(width(), 150);
-    m_popupFrame->show();
+    return index.data(Qt::UserRole).toString();
 }
 
-void CustomSelector::hidePopup()
+void CustomLineEdit::showHintForIndex(const QModelIndex &index)
 {
-    if (m_popupFrame->isVisible()) {
-        m_popupFrame->hide();
-    }
-}
-
-void CustomSelector::updateHintDisplay(const QModelIndex &index)
-{
-    if (!index.isValid()) return;
-
-    QString hintText = hintForIndex(index);
-    if (!hintText.isEmpty()) {
-        // Using a tooltip here for simplicity, but you can create a custom label instead.
-        // Alternatively, you could show a separate hint widget that updates its text dynamically.
-        QToolTip::showText(QCursor::pos(), hintText, m_listView);
+    QString hint = hintForIndex(index);
+    if (!hint.isEmpty()) {
+        // Show tooltip at cursor position or near popup
+        QPoint globalPos = m_completer->popup()->viewport()->mapToGlobal(
+            m_completer->popup()->viewport()->rect().topLeft()
+        );
+        // Adjust position based on item rect
+        QRect rect = m_completer->popup()->visualRect(index);
+        QPoint hintPos = globalPos + QPoint(rect.right() + 10, rect.top());
+        QToolTip::showText(hintPos, hint, m_completer->popup());
     } else {
         QToolTip::hideText();
     }
