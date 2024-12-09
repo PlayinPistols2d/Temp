@@ -1,40 +1,27 @@
-#include <QJsonObject>
-#include <QString>
-#include <QVariant>
+// main.cpp or some usage point
 
-// Helper function to insert key-value pairs into a QJsonObject
-template <typename Key, typename Value>
-void addKeyValue(QJsonObject &jsonObject, const Key &key, const Value &value) {
-    jsonObject.insert(QString::fromStdString(std::to_string(key)), QJsonValue::fromVariant(QVariant::fromValue(value)));
-}
+#include "CustomSelector.h"
+#include <QApplication>
 
-// Variadic function to handle multiple key-value pairs
-template <typename Key, typename Value, typename... Args>
-void addKeyValue(QJsonObject &jsonObject, const Key &key, const Value &value, Args... args) {
-    // Insert the current key-value pair
-    addKeyValue(jsonObject, key, value);
+int main(int argc, char *argv[])
+{
+    QApplication app(argc, argv);
 
-    // Recurse for the remaining arguments
-    addKeyValue(jsonObject, args...);
-}
+    CustomSelector selector;
+    QList<QPair<QString, QString>> items = {
+        { "Apple", "A sweet red fruit." },
+        { "Apricot", "A small, yellow-orange stone fruit." },
+        { "Avocado", "A creamy green fruit used in guacamole." },
+        { "Banana", "A long curved fruit with a yellow skin." }
+    };
+    selector.setItems(items);
 
-// Main function to create QJsonObject
-template <typename... Args>
-QJsonObject createJsonObject(Args... args) {
-    QJsonObject jsonObject;
-    addKeyValue(jsonObject, args...);
-    return jsonObject;
-}
+    QObject::connect(&selector, &CustomSelector::itemSelected, [](const QString &text, const QString &hint){
+        qDebug() << "Selected:" << text << "Hint:" << hint;
+    });
 
-// Usage example
-int main() {
-    // Create a QJsonObject with key-value pairs
-    QJsonObject json = createJsonObject("name", "John", "age", 30, "city", "New York");
+    selector.resize(200, 40);
+    selector.show();
 
-    // Print the QJsonObject
-    for (const QString &key : json.keys()) {
-        qDebug() << key << ":" << json[key].toString();
-    }
-
-    return 0;
+    return app.exec();
 }
