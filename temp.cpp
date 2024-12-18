@@ -1,8 +1,9 @@
 #include <QCoreApplication>
 #include <QString>
-#include <QStringList>
+#include <QList>
 #include <QRegularExpression>
 #include <QDebug>
+#include "CustomType.h"
 
 // Функция для извлечения числового диапазона из строки
 std::pair<int, int> extractRange(const QString& str) {
@@ -17,10 +18,10 @@ std::pair<int, int> extractRange(const QString& str) {
     return {0, 0}; // Возвращаем {0, 0}, если диапазон не найден
 }
 
-// Сравнительная функция для сортировки
-bool compareStrings(const QString& a, const QString& b) {
-    auto rangeA = extractRange(a);
-    auto rangeB = extractRange(b);
+// Сравнительная функция для сортировки объектов CustomType
+bool compareCustomTypes(const CustomType& a, const CustomType& b) {
+    auto rangeA = extractRange(a.rangeStr);
+    auto rangeB = extractRange(b.rangeStr);
 
     if (rangeA.first != rangeB.first)
         return rangeA.first < rangeB.first; // Сравниваем по x
@@ -30,21 +31,21 @@ bool compareStrings(const QString& a, const QString& b) {
 int main(int argc, char *argv[]) {
     QCoreApplication a(argc, argv);
 
-    // Пример списка строк
-    QStringList list = {
-        "example[5-10]",
-        "test[1-3]",
-        "sample[2-4]",
-        "demo[0-1]",
-        "data[3-8]"
+    // Пример списка объектов
+    QList<CustomType> list = {
+        {1, "example[5-10]"},
+        {2, "test[1-3]"},
+        {3, "sample[2-4]"},
+        {4, "demo[0-1]"},
+        {5, "data[3-8]"}
     };
 
     // Сортировка списка
-    std::sort(list.begin(), list.end(), compareStrings);
+    std::sort(list.begin(), list.end(), compareCustomTypes);
 
     // Вывод отсортированного списка
-    for (const QString& str : list) {
-        qDebug() << str;
+    for (const CustomType& obj : list) {
+        qDebug() << "ID:" << obj.id << "Range:" << obj.rangeStr;
     }
 
     return a.exec();
