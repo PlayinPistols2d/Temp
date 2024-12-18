@@ -1,34 +1,51 @@
-#include <QApplication>
-#include <QWidget>
-#include <QVBoxLayout>
+#include <QCoreApplication>
+#include <QString>
+#include <QStringList>
+#include <QRegularExpression>
 #include <QDebug>
-#include "CustomLineEdit.h"
 
-int main(int argc, char *argv[])
-{
-    QApplication app(argc, argv);
+// Функция для извлечения числового диапазона из строки
+std::pair<int, int> extractRange(const QString& str) {
+    QRegularExpression regex("\\[(\\d+)-(\\d+)\\]");
+    QRegularExpressionMatch match = regex.match(str);
 
-    QWidget w;
-    QVBoxLayout layout(&w);
+    if (match.hasMatch()) {
+        int x = match.captured(1).toInt();
+        int y = match.captured(2).toInt();
+        return {x, y};
+    }
+    return {0, 0}; // Возвращаем {0, 0}, если диапазон не найден
+}
 
-    CustomLineEdit *lineEdit = new CustomLineEdit;
-    layout.addWidget(lineEdit);
+// Сравнительная функция для сортировки
+bool compareStrings(const QString& a, const QString& b) {
+    auto rangeA = extractRange(a);
+    auto rangeB = extractRange(b);
 
-    QList<QPair<QString, QString>> items = {
-        { "Apple", "A sweet red fruit." },
-        { "Apricot", "A small, yellow-orange stone fruit." },
-        { "Avocado", "A creamy green fruit used in guacamole." },
-        { "Banana", "A long curved fruit with a yellow skin." },
-        { "Blueberry", "A small sweet blue fruit." }
+    if (rangeA.first != rangeB.first)
+        return rangeA.first < rangeB.first; // Сравниваем по x
+    return rangeA.second < rangeB.second;  // Если x равны, сравниваем по y
+}
+
+int main(int argc, char *argv[]) {
+    QCoreApplication a(argc, argv);
+
+    // Пример списка строк
+    QStringList list = {
+        "example[5-10]",
+        "test[1-3]",
+        "sample[2-4]",
+        "demo[0-1]",
+        "data[3-8]"
     };
-    lineEdit->setItems(items);
 
-    QObject::connect(lineEdit, &CustomLineEdit::itemSelected, [](const QString &text, const QString &hint){
-        qDebug() << "Selected:" << text << "Hint:" << hint;
-    });
+    // Сортировка списка
+    std::sort(list.begin(), list.end(), compareStrings);
 
-    w.resize(300, 100);
-    w.show();
+    // Вывод отсортированного списка
+    for (const QString& str : list) {
+        qDebug() << str;
+    }
 
-    return app.exec();
+    return a.exec();
 }
