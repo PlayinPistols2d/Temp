@@ -1,52 +1,69 @@
-#include <QCoreApplication>
-#include <QString>
-#include <QList>
+// MyWidget.cpp
+#include "MyWidget.h"
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QListWidget>
 #include <QRegularExpression>
-#include <QDebug>
-#include "CustomType.h"
+#include <algorithm>
+#include <limits>
 
-// Функция для извлечения числового диапазона из строки
-std::pair<int, int> extractRange(const QString& str) {
-    QRegularExpression regex("\\[(\\d+)-(\\d+)\\]");
-    QRegularExpressionMatch match = regex.match(str);
+MyWidget::MyWidget(QWidget *parent)
+    : QWidget(parent)
+{
+    // Инициализация UI
+    QVBoxLayout *layout = new QVBoxLayout(this);
 
+    m_listWidget = new QListWidget(this);
+    m_sortButton = new QPushButton("Sort", this);
+
+    layout->addWidget(m_listWidget);
+    layout->addWidget(m_sortButton);
+
+    // Пример заполнения списка MyObject
+    m_list << MyObject("agagsga[0-1]")
+           << MyObject("shshgsbsb[2-12]")
+           << MyObject("example[1-1]")
+           << MyObject("test[0-9]");
+
+    populateListWidget();
+
+    connect(m_sortButton, &QPushButton::clicked, this, &MyWidget::sortList);
+}
+
+void MyWidget::sortList()
+{
+    std::sort(m_list.begin(), m_list.end(), [](const MyObject &a, const MyObject &b){
+        auto aPair = extractNumbers(a.value());
+        auto bPair = extractNumbers(b.value());
+
+        // Сортируем сначала по x, при равенстве по y
+        if (aPair.first == bPair.first)
+            return aPair.second < bPair.second;
+        return aPair.first < bPair.first;
+    });
+
+    populateListWidget();
+}
+
+QPair<int,int> MyWidget::extractNumbers(const QString &str)
+{
+    static QRegularExpression re("\\[(\\d+)-(\\d+)\\]$");
+    QRegularExpressionMatch match = re.match(str);
     if (match.hasMatch()) {
-        int x = match.captured(1).toInt();
-        int y = match.captured(2).toInt();
-        return {x, y};
+        bool ok1 = false, ok2 = false;
+        int x = match.captured(1).toInt(&ok1);
+        int y = match.captured(2).toInt(&ok2);
+        if (ok1 && ok2) {
+            return qMakePair(x, y);
+        }
     }
-    return {0, 0}; // Возвращаем {0, 0}, если диапазон не найден
+    return qMakePair(std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
 }
 
-// Сравнительная функция для сортировки объектов CustomType
-bool compareCustomTypes(const CustomType& a, const CustomType& b) {
-    auto rangeA = extractRange(a.rangeStr);
-    auto rangeB = extractRange(b.rangeStr);
-
-    if (rangeA.first != rangeB.first)
-        return rangeA.first < rangeB.first; // Сравниваем по x
-    return rangeA.second < rangeB.second;  // Если x равны, сравниваем по y
-}
-
-int main(int argc, char *argv[]) {
-    QCoreApplication a(argc, argv);
-
-    // Пример списка объектов
-    QList<CustomType> list = {
-        {1, "example[5-10]"},
-        {2, "test[1-3]"},
-        {3, "sample[2-4]"},
-        {4, "demo[0-1]"},
-        {5, "data[3-8]"}
-    };
-
-    // Сортировка списка
-    std::sort(list.begin(), list.end(), compareCustomTypes);
-
-    // Вывод отсортированного списка
-    for (const CustomType& obj : list) {
-        qDebug() << "ID:" << obj.id << "Range:" << obj.rangeStr;
+void MyWidget::populateListWidget()
+{
+    m_listWidget->clear();
+    for (const auto &obj : m_list) {
+        m_listWidget->addItem(obj.value());
     }
-
-    return a.exec();
 }
