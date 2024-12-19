@@ -19,7 +19,9 @@
                 <div class="reel" id="reel2"></div>
                 <div class="reel" id="reel3"></div>
             </div>
-            <!-- Рычаг для запуска вращения -->
+            <!-- Кнопка для запуска слотов -->
+            <button class="spin-btn">SPIN</button>
+            <!-- Рычаг для альтернативного запуска -->
             <div class="lever-container">
                 <div class="lever-handle"></div>
                 <div class="lever-knob"></div>
@@ -33,8 +35,6 @@
     <script src="script.js"></script>
 </body>
 </html>
-
-
 
 
 
@@ -195,6 +195,39 @@ body {
     transform: translateY(20px);
 }
 
+/* Стиль для кнопки SPIN */
+.spin-btn {
+    position: absolute;
+    left: -120px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 20px 40px;
+    font-size: 2rem;
+    background: #111;
+    color: #0ff;
+    border: 4px solid #0ff;
+    cursor: pointer;
+    border-radius: 10px;
+    text-shadow: 0 0 10px #0ff;
+    transition: background 0.3s;
+    z-index: 3;
+    animation: spin-btn-blink 2s infinite;
+}
+.spin-btn:hover {
+    background: #0ff;
+    color: #000;
+    box-shadow: 0 0 10px #0ff;
+}
+
+@keyframes spin-btn-blink {
+    0%, 100% {
+        box-shadow: 0 0 10px #0ff;
+    }
+    50% {
+        box-shadow: 0 0 20px #0ff;
+    }
+}
+
 .result-message {
     position: absolute;
     top: 50px;
@@ -240,8 +273,6 @@ body {
 
 
 
-
-
 document.addEventListener('DOMContentLoaded', () => {
     const symbols = ['🍒', '🍋', '🍉', '⭐', '💎', '🔔', '7️⃣', '🍀'];
 
@@ -258,6 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const emojiContainer = document.querySelector('.emoji-fireworks');
 
     const leverContainer = document.querySelector('.lever-container');
+    const spinBtn = document.querySelector('.spin-btn');
     
     let isSpinning = false;
     let spinIntervals = [];
@@ -270,10 +302,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // При нажатии на рычаг
     leverContainer.addEventListener('click', () => {
-        if (isSpinning) return;
-        pullLever();
+        if (!isSpinning) {
+            pullLever();
+            startSpinningProcess();
+        }
     });
     
+    // При нажатии на кнопку SPIN
+    spinBtn.addEventListener('click', () => {
+        if (!isSpinning) {
+            startSpinningProcess();
+        }
+    });
+
     function fillReel(reel) {
         reel.innerHTML = '';
         for (let i = 0; i < 20; i++) {
@@ -374,16 +415,16 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             leverContainer.classList.remove('lever-pulled');
         }, 500);
+    }
 
-        if (!isSpinning) {
-            isSpinning = true;
-            resultMessage.style.opacity = 0;
-            reels.forEach(fillReel);
-            startSpin();
+    function startSpinningProcess() {
+        isSpinning = true;
+        resultMessage.style.opacity = 0;
+        reels.forEach(fillReel);
+        startSpin();
 
-            setTimeout(() => stopReel(0), 2000);
-            setTimeout(() => stopReel(1), 3000);
-            setTimeout(() => stopReel(2), 4000);
-        }
+        setTimeout(() => stopReel(0), 2000);
+        setTimeout(() => stopReel(1), 3000);
+        setTimeout(() => stopReel(2), 4000);
     }
 });
