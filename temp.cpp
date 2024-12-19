@@ -19,9 +19,7 @@
                 <div class="reel" id="reel2"></div>
                 <div class="reel" id="reel3"></div>
             </div>
-            <!-- Кнопка для запуска слотов -->
             <button class="spin-btn">SPIN</button>
-            <!-- Рычаг для альтернативного запуска -->
             <div class="lever-container">
                 <div class="lever-handle"></div>
                 <div class="lever-knob"></div>
@@ -35,6 +33,7 @@
     <script src="script.js"></script>
 </body>
 </html>
+
 
 
 
@@ -149,7 +148,7 @@ body {
     font-size: 3rem;
 }
 
-/* Стиль для рычага */
+/* Рычаг */
 .lever-container {
     position: absolute;
     right: -50px;
@@ -195,7 +194,7 @@ body {
     transform: translateY(20px);
 }
 
-/* Стиль для кнопки SPIN */
+/* Кнопка SPIN */
 .spin-btn {
     position: absolute;
     left: -120px;
@@ -273,13 +272,17 @@ body {
 
 
 
+
+
+
 document.addEventListener('DOMContentLoaded', () => {
     const symbols = ['🍒', '🍋', '🍉', '⭐', '💎', '🔔', '7️⃣', '🍀'];
-
+    const symbolHeight = 80;
+    const reelSize = 20; // количество символов в одном барабане
+    
     const reel1 = document.getElementById('reel1');
     const reel2 = document.getElementById('reel2');
     const reel3 = document.getElementById('reel3');
-    
     const reels = [reel1, reel2, reel3];
     
     const startScreen = document.querySelector('.start-screen');
@@ -290,9 +293,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const leverContainer = document.querySelector('.lever-container');
     const spinBtn = document.querySelector('.spin-btn');
-    
+
     let isSpinning = false;
-    let spinIntervals = [];
+
+    // Для анимации
+    let reelPositions = [0,0,0];        // Текущее смещение по Y для каждого барабана
+    let reelSpeeds = [0,0,0];           // Скорость вращения барабанов (px/frame)
+    let reelRunning = [false, false, false]; // Идет ли анимация для конкретного барабана
+    let stopping = [false, false, false];    // Флаги, что барабан в процессе остановки
+
+    let lastTime = 0;
 
     startBtn.addEventListener('click', () => {
         startScreen.style.display = 'none';
@@ -300,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reels.forEach(fillReel);
     });
     
-    // При нажатии на рычаг
+    // Клик по рычагу
     leverContainer.addEventListener('click', () => {
         if (!isSpinning) {
             pullLever();
@@ -308,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // При нажатии на кнопку SPIN
+    // Клик по кнопке SPIN
     spinBtn.addEventListener('click', () => {
         if (!isSpinning) {
             startSpinningProcess();
@@ -317,63 +327,97 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function fillReel(reel) {
         reel.innerHTML = '';
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < reelSize; i++) {
             const symbol = document.createElement('div');
             symbol.classList.add('symbol');
             symbol.textContent = symbols[Math.floor(Math.random() * symbols.length)];
             reel.appendChild(symbol);
         }
     }
-    
-    function startSpin() {
-        reels.forEach((reel, idx) => {
-            const speed = 50;
-            let offset = 0;
-            spinIntervals[idx] = setInterval(() => {
-                offset++;
-                reel.style.transform = `translateY(-${offset * 80}px)`;
-                if (offset >= reel.children.length - 3) {
-                    offset = 0;
-                    fillReel(reel);
-                    reel.style.transform = `translateY(0px)`;
-                }
-            }, speed);
-        });
-    }
 
-    function stopReel(reelIndex) {
-        clearInterval(spinIntervals[reelIndex]);
-        const reel = reels[reelIndex];
-        
-        const transformValue = reel.style.transform;
-        const match = transformValue.match(/translateY\(-?(\d+)px\)/);
-        let offset = match ? parseInt(match[1]) : 0;
-        
-        const symbolHeight = 80;
-        const remainder = offset % symbolHeight;
-        if (remainder !== 0) {
-            offset -= remainder;
+    function startSpinningProcess() {
+        isSpinning = true;
+        resultMessage.style.opacity = 0;
+
+        // Обновим символы
+        reels.forEach(fillReel);
+
+        // Инициализируем скорость и состояние
+        for (let i = 0; i < 3; i++) {
+            reelPositions[i] = 0;
+            reelSpeeds[i] = 50; // начальная скорость прокрутки (px/frame)
+            reelRunning[i] = true;
+            stopping[i] = false;
         }
         
-        reel.style.transition = 'transform 0.5s ease-out';
-        reel.style.transform = `translateY(-${offset}px)`;
-        
-        reel.addEventListener('transitionend', function cleanup() {
-            reel.style.transition = '';
-            reel.removeEventListener('transitionend', cleanup);
+        lastTime = performance.now();
+        requestAnimationFrame(animationFrame);
 
-            if (reelIndex === 2) {
-                checkResult();
-                isSpinning = false;
+        // Задаем время остановки барабанов
+        setTimeout(() => stopReel(0), 2000);
+        setTimeout(() => stopReel(1), 3000);
+        setTimeout(() => stopReel(2), 4000);
+    }
+
+    function animationFrame(time) {
+        const delta = time - lastTime;
+        lastTime = time;
+
+        // Обновляем каждый барабан
+        for (let i = 0; i < 3; i++) {
+            if (reelRunning[i]) {
+                // Смещаем барабан по скорости
+                reelPositions[i] += reelSpeeds[i] * (delta / 16.67); 
+                // Ограничим рост, чтобы был бесконечный цикл
+                const maxOffset = reelSize * symbolHeight;
+                if (reelPositions[i] > maxOffset) {
+                    reelPositions[i] = reelPositions[i] % maxOffset;
+                }
+
+                // Применяем трансформацию
+                reels[i].style.transform = `translateY(-${reelPositions[i]}px)`;
+
+                // Если барабан в процессе остановки, замедляем его
+                if (stopping[i] && reelSpeeds[i] > 0) {
+                    // Плавное замедление
+                    reelSpeeds[i] -= 0.5 * (delta/16.67); // уменьшаем скорость 
+                    if (reelSpeeds[i] <= 0) {
+                        // Скорость уменьшилась до нуля, выравниваем символ
+                        reelSpeeds[i] = 0;
+                        finalizeReel(i);
+                    }
+                }
             }
-        });
+        }
+
+        // Если хотя бы один барабан еще крутится, продолжаем анимацию
+        if (reelRunning.some(r => r === true)) {
+            requestAnimationFrame(animationFrame);
+        }
+    }
+
+    function stopReel(i) {
+        stopping[i] = true;
+    }
+
+    function finalizeReel(i) {
+        // Выравниваем символы
+        const remainder = reelPositions[i] % symbolHeight;
+        reelPositions[i] -= remainder;
+        reels[i].style.transform = `translateY(-${reelPositions[i]}px)`;
+
+        reelRunning[i] = false;
+        // Если это последний остановившийся барабан
+        if (!reelRunning.some(r => r === true)) {
+            // Все остановились, проверяем результат
+            checkResult();
+            isSpinning = false;
+        }
     }
 
     function checkResult() {
-        // Получаем символы в центральных ячейках
         const finalSymbols = reels.map(reel => reel.children[2].textContent);
         const [s1, s2, s3] = finalSymbols;
-
         if (s1 === s2 && s2 === s3) {
             showWinAnimation();
         } else {
@@ -384,7 +428,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function showWinAnimation() {
         resultMessage.textContent = 'YOU WIN!!!';
         resultMessage.style.opacity = 1;
-
         for (let i = 0; i < 50; i++) {
             createEmoji();
         }
@@ -410,21 +453,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pullLever() {
-        // Анимация рычага
         leverContainer.classList.add('lever-pulled');
         setTimeout(() => {
             leverContainer.classList.remove('lever-pulled');
         }, 500);
-    }
-
-    function startSpinningProcess() {
-        isSpinning = true;
-        resultMessage.style.opacity = 0;
-        reels.forEach(fillReel);
-        startSpin();
-
-        setTimeout(() => stopReel(0), 2000);
-        setTimeout(() => stopReel(1), 3000);
-        setTimeout(() => stopReel(2), 4000);
     }
 });
