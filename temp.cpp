@@ -19,7 +19,11 @@
                 <div class="reel" id="reel2"></div>
                 <div class="reel" id="reel3"></div>
             </div>
-            <button class="spin-btn">SPIN</button>
+            <!-- Рычаг для запуска вращения -->
+            <div class="lever-container">
+                <div class="lever-handle"></div>
+                <div class="lever-knob"></div>
+            </div>
         </div>
     </div>
     
@@ -104,13 +108,17 @@ body {
     box-shadow: 0 0 40px #0ff;
     border-radius: 20px;
     background: radial-gradient(circle, #111, #000);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .reel-container {
     display: flex;
-    width: 100%;
-    height: 100%;
+    width: 80%;
+    height: 80%;
     position: relative;
+    z-index: 2;
 }
 
 .reel {
@@ -138,32 +146,50 @@ body {
     font-size: 3rem;
 }
 
-.spin-btn {
-    margin-top: 20px;
-    padding: 20px 40px;
-    font-size: 2rem;
-    background: #111;
-    color: #0ff;
-    border: 4px solid #0ff;
+/* Стиль для рычага */
+.lever-container {
+    position: absolute;
+    right: -50px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 150px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     cursor: pointer;
-    border-radius: 10px;
-    text-shadow: 0 0 10px #0ff;
-    transition: background 0.3s;
-    animation: spin-btn-blink 2s infinite;
-}
-.spin-btn:hover {
-    background: #0ff;
-    color: #000;
-    box-shadow: 0 0 10px #0ff;
+    z-index: 3;
 }
 
-@keyframes spin-btn-blink {
-    0%, 100% {
-        box-shadow: 0 0 10px #0ff;
-    }
-    50% {
-        box-shadow: 0 0 20px #0ff;
-    }
+.lever-handle {
+    width: 10px;
+    height: 100px;
+    background: linear-gradient(to bottom, #0ff, #000);
+    border: 2px solid #0ff;
+    box-shadow: 0 0 10px #0ff;
+    border-radius: 5px;
+    transition: transform 0.2s ease-out;
+    transform-origin: top center;
+}
+
+.lever-knob {
+    width: 40px;
+    height: 40px;
+    background: #0ff;
+    border: 2px solid #0ff;
+    border-radius: 50%;
+    box-shadow: 0 0 10px #0ff;
+    margin-top: -10px;
+    transition: transform 0.2s ease-out;
+    transform-origin: center center;
+}
+
+.lever-pulled .lever-handle {
+    transform: rotate(30deg);
+}
+
+.lever-pulled .lever-knob {
+    transform: translateY(20px);
 }
 
 .result-message {
@@ -210,7 +236,6 @@ body {
 
 
 
-
 document.addEventListener('DOMContentLoaded', () => {
     const symbols = ['🍒', '🍋', '🍉', '⭐', '💎', '🔔', '7️⃣', '🍀'];
 
@@ -223,10 +248,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const startScreen = document.querySelector('.start-screen');
     const startBtn = document.querySelector('.start-btn');
     const slotMachine = document.querySelector('.slot-machine');
-    const spinBtn = document.querySelector('.spin-btn');
     const resultMessage = document.querySelector('.result-message');
     const emojiContainer = document.querySelector('.emoji-fireworks');
 
+    const leverContainer = document.querySelector('.lever-container');
+    
     let isSpinning = false;
     let spinIntervals = [];
 
@@ -236,21 +262,10 @@ document.addEventListener('DOMContentLoaded', () => {
         reels.forEach(fillReel);
     });
     
-    spinBtn.addEventListener('click', () => {
+    // При нажатии на рычаг
+    leverContainer.addEventListener('click', () => {
         if (isSpinning) return;
-        isSpinning = true;
-        
-        resultMessage.style.opacity = 0; // Скрыть предыдущее сообщение
-        
-        // Перезаполним барабаны новыми символами перед стартом
-        reels.forEach(fillReel);
-        
-        startSpin();
-        
-        // Останавливаем с задержками, имитируем остановку каждого барабана по очереди
-        setTimeout(() => stopReel(0), 2000);
-        setTimeout(() => stopReel(1), 3000);
-        setTimeout(() => stopReel(2), 4000);
+        pullLever();
     });
     
     function fillReel(reel) {
@@ -300,7 +315,6 @@ document.addEventListener('DOMContentLoaded', () => {
             reel.style.transition = '';
             reel.removeEventListener('transitionend', cleanup);
 
-            // Если это был последний барабан, проверим результат
             if (reelIndex === 2) {
                 checkResult();
                 isSpinning = false;
@@ -309,23 +323,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function checkResult() {
-        // Проверяем какие символы остановились в "окне"
-        // "Окно" - это примерно центральный символ, давайте возьмем символ по индексу 2 или 3
-        // Для упрощения возьмём символ, который стоит в reel.children[2] после остановки
-        const finalSymbols = reels.map(reel => {
-            // Найдём индекс символа, который в центре:
-            // Предположим, после остановки offset кратен 80, значит верхний символ сейчас reel.children[0].
-            // Центральная позиция пусть будет reel.children[2].
-            return reel.children[2].textContent;
-        });
-
+        // Получаем символы в центральных ячейках
+        const finalSymbols = reels.map(reel => reel.children[2].textContent);
         const [s1, s2, s3] = finalSymbols;
 
         if (s1 === s2 && s2 === s3) {
-            // Выигрыш!
             showWinAnimation();
         } else {
-            // Проигрыш
             showLoseMessage();
         }
     }
@@ -334,7 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
         resultMessage.textContent = 'YOU WIN!!!';
         resultMessage.style.opacity = 1;
 
-        // Запускаем фейерверк из смайликов
         for (let i = 0; i < 50; i++) {
             createEmoji();
         }
@@ -357,5 +360,24 @@ document.addEventListener('DOMContentLoaded', () => {
         emoji.addEventListener('animationend', () => {
             emoji.remove();
         });
+    }
+
+    function pullLever() {
+        // Анимация рычага
+        leverContainer.classList.add('lever-pulled');
+        setTimeout(() => {
+            leverContainer.classList.remove('lever-pulled');
+        }, 500);
+
+        if (!isSpinning) {
+            isSpinning = true;
+            resultMessage.style.opacity = 0;
+            reels.forEach(fillReel);
+            startSpin();
+
+            setTimeout(() => stopReel(0), 2000);
+            setTimeout(() => stopReel(1), 3000);
+            setTimeout(() => stopReel(2), 4000);
+        }
     }
 });
