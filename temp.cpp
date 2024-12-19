@@ -13,7 +13,7 @@
     </div>
 
     <div class="slot-machine" style="display:none;">
-        <div class="frame">
+        <div class="frame" id="container">
             <div class="reel-container">
                 <div class="reel" id="reel1"></div>
                 <div class="reel" id="reel2"></div>
@@ -33,6 +33,8 @@
     <script src="script.js"></script>
 </body>
 </html>
+
+
 
 
 
@@ -133,6 +135,7 @@ body {
     color: #0ff;
     text-shadow: 0 0 5px #0ff;
     padding: 10px 0;
+    transform: translateY(0);
 }
 
 .reel .symbol {
@@ -267,6 +270,10 @@ body {
     }
 }
 
+/* Когда контейнер в состоянии вращения */
+.spinning .reel {
+    /* При спинне мы назначим transition динамически через JS */
+}
 
 
 
@@ -275,8 +282,7 @@ body {
 document.addEventListener('DOMContentLoaded', () => {
     const symbols = ['🍒', '🍋', '🍉', '⭐', '💎', '🔔', '7️⃣', '🍀'];
     const symbolHeight = 80;
-    const reelVisibleCount = 3;
-    const reelSize = 60; // большое количество символов для плавной прокрутки
+    const reelSize = 40; // Кол-во символов в каждом барабане (достаточно большое для плавного эффекта)
     
     const reel1 = document.getElementById('reel1');
     const reel2 = document.getElementById('reel2');
@@ -291,16 +297,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const leverContainer = document.querySelector('.lever-container');
     const spinBtn = document.querySelector('.spin-btn');
+    const container = document.getElementById('container');
 
     let isSpinning = false;
-
-    // Параметры анимации
-    let reelOffsets = [0,0,0]; // текущее смещение по Y для каждого барабана
-    let reelSpeeds = [0,0,0];  // скорость (px за кадр) для каждого барабана
-    let reelRunning = [false,false,false];
-    let reelStopping = [false,false,false];
-
-    let animationFrameId = null;
+    let spinningCount = 0; // Кол-во барабанов, которые ещё крутятся
 
     startBtn.addEventListener('click', () => {
         startScreen.style.display = 'none';
@@ -312,123 +312,94 @@ document.addEventListener('DOMContentLoaded', () => {
     leverContainer.addEventListener('click', () => {
         if (!isSpinning) {
             pullLever();
-            startSpinningProcess();
+            startSpin();
         }
     });
     
     // Клик по кнопке SPIN
     spinBtn.addEventListener('click', () => {
         if (!isSpinning) {
-            startSpinningProcess();
+            startSpin();
         }
     });
 
     function fillReel(reel) {
         reel.innerHTML = '';
-        // Заполним барабан большим количеством символов
-        // Повторим рандомный набор несколько раз
         for (let i = 0; i < reelSize; i++) {
             const symbol = document.createElement('div');
             symbol.classList.add('symbol');
             symbol.textContent = symbols[Math.floor(Math.random() * symbols.length)];
             reel.appendChild(symbol);
         }
+        reel.style.transform = 'translateY(0)';
     }
 
-    function startSpinningProcess() {
+    function startSpin() {
         isSpinning = true;
         resultMessage.style.opacity = 0;
+
+        container.classList.add('spinning');
         reels.forEach(fillReel);
 
-        // Инициализируем начальные скорости и состояния
-        for (let i = 0; i < 3; i++) {
-            reelOffsets[i] = 0;
-            reelSpeeds[i] = 2.5; // не слишком быстро: ~2.5px/кадр
-            reelRunning[i] = true;
-            reelStopping[i] = false;
-        }
+        spinningCount = 3;
 
-        startAnimation();
-        
-        // Запускаем таймеры остановки
-        setTimeout(() => { reelStopping[0] = true; }, 2000);
-        setTimeout(() => { reelStopping[1] = true; }, 3000);
-        setTimeout(() => { reelStopping[2] = true; }, 4000);
+        // Для каждого барабана зададим разную случайную продолжительность и конечный сдвиг
+        reels.forEach((reel, i) => {
+            // Случайная продолжительность вращения от 2 до 4 секунд
+            const duration = 2 + Math.random() * 2; 
+            // Смещение: большое число символов, пусть проскролит "несколько раз"
+            // Примерно проскролим от 5 до 10 длин барабана
+            const rounds = 5 + Math.floor(Math.random() * 6);
+            const finalOffset = rounds * reelSize * symbolHeight;
+
+            reel.style.transition = `transform ${duration.toFixed(2)}s cubic-bezier(0.33, 0.66, 0.66, 1)`;
+            reel.style.transform = `translateY(-${finalOffset}px)`;
+
+            reel.addEventListener('transitionend', function onTransitionEnd() {
+                reel.removeEventListener('transitionend', onTransitionEnd);
+                finalizeReel(i, finalOffset);
+            });
+        });
     }
 
-    function startAnimation() {
-        if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        animationFrame();
-    }
+    function finalizeReel(index, finalOffset) {
+        // Вычислим индекс символа, который окажется в центре
+        // Центральная позиция - примерно 2-й символ от начала (0,1,2)
+        // Найдём индекс символа:
+        // indexSymbol = ((finalOffset / symbolHeight) + 2) % reelSize
+        const offsetSymbols = (finalOffset / symbolHeight);
+        const centerIndex = (offsetSymbols + 2) % reelSize;
 
-    function animationFrame() {
-        let stillRunning = false;
+        // Возьмём символ в этой позиции - это "результат" для данного барабана
+        const reel = reels[index];
+        const chosenSymbol = reel.children[Math.floor(centerIndex)].textContent;
 
-        for (let i = 0; i < 3; i++) {
-            if (reelRunning[i]) {
-                stillRunning = true;
-                // Движение барабана
-                reelOffsets[i] += reelSpeeds[i];
+        // Уберём transition, зафиксируем барабан ровно на этом символе
+        reel.style.transition = 'none';
 
-                // Если смещение вышло за пределы длины всех символов
-                const totalHeight = reelSize * symbolHeight;
-                if (reelOffsets[i] > totalHeight) {
-                    reelOffsets[i] -= totalHeight; 
-                }
+        // Выравниваем так, чтобы символ на centerIndex был на центральной линии
+        const adjustOffset = Math.floor(centerIndex) * symbolHeight;
+        reel.style.transform = `translateY(-${adjustOffset}px)`;
 
-                // Применяем смещение
-                reels[i].style.transform = `translateY(-${reelOffsets[i]}px)`;
-
-                // Если барабан должен останавливаться, замедляем его
-                if (reelStopping[i]) {
-                    if (reelSpeeds[i] > 0) {
-                        reelSpeeds[i] -= 0.05; // плавное замедление
-                        if (reelSpeeds[i] <= 0) {
-                            // Скорость упала до нуля, выравниваем
-                            reelSpeeds[i] = 0;
-                            alignReel(i);
-                            reelRunning[i] = false;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (stillRunning) {
-            animationFrameId = requestAnimationFrame(animationFrame);
-        } else {
-            // Все остановились
+        spinningCount--;
+        if (spinningCount === 0) {
+            container.classList.remove('spinning');
             checkResult();
             isSpinning = false;
         }
     }
 
-    function alignReel(i) {
-        // Выравниваем барабан по символу
-        const remainder = reelOffsets[i] % symbolHeight;
-        reelOffsets[i] -= remainder;
-        reels[i].style.transform = `translateY(-${reelOffsets[i]}px)`;
-    }
-
     function checkResult() {
-        // Центральный символ будет примерно на индексе 2 от начала (0,1,2)
-        // Поскольку у нас большое количество символов, мы берем reelOffsets[i], чтобы понять какой сейчас символ в центре.
-        // Центрируемся на символе, который соответствует reelOffsets[i].
-        // reelOffsets[i] показывает, на сколько px прокручен барабан.
-        // Индекс центрального символа: (reelOffsets[i]/symbolHeight) + 2 (берём 2 как позицию "выигрышной линии")
-        
-        function getCenterSymbol(reel) {
-            // Центральную линию возьмём символ с индексом 2 относительно начала видимой области.
-            // reelOffsets[i]/symbolHeight даёт сдвиг символов.
-            // Предположим, верхний символ - индекс floor(reelOffsets[i]/symbolHeight),
-            // а нам нужен символ на линии 2, значит индекс символа:
-            // centerIndex = (Math.floor(reelOffsets[i]/symbolHeight) + 2) % reelSize
-            return (Math.floor(reelOffsets[reels.indexOf(reel)]/symbolHeight) + 2) % reelSize;
-        }
-
+        // Определим символы, попавшие в центр
+        // Аналогично финальной логике, центр - index=2 элемент от начала отображаемой области
         const finalSymbols = reels.map(reel => {
-            const idx = getCenterSymbol(reel);
-            return reel.children[idx].textContent;
+            const transformValue = reel.style.transform;
+            const match = transformValue.match(/-([\d]+)px\)/);
+            let offset = match ? parseInt(match[1]) : 0;
+            let topSymbolIndex = Math.floor(offset / symbolHeight);
+            // Центр = topSymbolIndex + 2
+            const centerSymbolIndex = (topSymbolIndex + 2) % reelSize;
+            return reel.children[centerSymbolIndex].textContent;
         });
 
         const [s1, s2, s3] = finalSymbols;
