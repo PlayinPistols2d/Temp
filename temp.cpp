@@ -36,9 +36,12 @@
   <rect x="0" y="0" width="800" height="600" fill="url(#sunsetGradient)" />
 
   <!-- Stylized sun -->
-  <circle cx="400" cy="300" r="100" fill="none" stroke="#FFDD99" stroke-width="4" opacity="0.8"/>
-  <circle cx="400" cy="300" r="90" fill="none" stroke="#FFDD99" stroke-width="4" opacity="0.5"/>
-  <circle cx="400" cy="300" r="80" fill="none" stroke="#FFDD99" stroke-width="4" opacity="0.3"/>
+  <circle id="sun" cx="400" cy="300" r="80" fill="none" stroke="#FFDD99" stroke-width="4" opacity="0.8">
+    <animate attributeName="stroke-width"
+             values="4;8;4"
+             dur="3s"
+             repeatCount="indefinite"/>
+  </circle>
 
   <!-- Horizon lines for a classic retro-wave look -->
   <g stroke="#FF66CC" stroke-width="2" opacity="0.25">
@@ -75,31 +78,49 @@
     <line x1="0" y1="550" x2="800" y2="550"/>
   </g>
 
-  <!-- The Car -->
-  <!-- Basic shape is a low-profile sports car with angular features -->
-  <g transform="translate(200,420) scale(0.8)">
-    <!-- Car body -->
-    <path d="M0 0 
-             L60 -10 L80 -20 L180 -20 
-             L200 -10 L220 0 L230 10 L240 20 
-             L0 20 Z"
+  <!-- The Car Group (more quad-like) -->
+  <!-- We'll create a blocky shape: a main body rectangle, a cabin block, and front/back shapes less pointy. -->
+  <g id="car" transform="translate(-250,420) scale(0.8)">
+    <!-- Animate car movement -->
+    <animateTransform attributeName="transform"
+                      type="translate"
+                      from="-250,420"
+                      to="1000,420"
+                      dur="4s"
+                      repeatCount="indefinite" />
+    <!-- Car body - a series of rectangles and gentle slopes -->
+    <!-- Body Base -->
+    <path d="M0 20 H240 V0 H220 V-10 H60 V0 H0 Z"
           fill="url(#carBodyGradient)" stroke="#FFEEFF" stroke-width="2"/>
-
-    <!-- Car windows -->
-    <path d="M80 -20 L180 -20 L195 -10 L175 -10 L70 -10 Z"
+    <!-- Cabin top (windows) -->
+    <path d="M60 -10 H180 V-20 H80 Z"
           fill="url(#windowGradient)" stroke="#8888AA" stroke-width="1"/>
-
-    <!-- Front and back headlights -->
-    <circle cx="220" cy="10" r="3" fill="#FFDD66"/>
-    <circle cx="10" cy="10" r="3" fill="#66FFDD"/>
+    <!-- Headlights -->
+    <rect x="230" y="5" width="5" height="3" fill="#FFDD66"/>
+    <rect x="5" y="5" width="5" height="3" fill="#66FFDD"/>
 
     <!-- Wheels -->
-    <!-- Front wheel -->
-    <circle cx="190" cy="20" r="10" fill="#111111" stroke="#FFEEFF" stroke-width="2"/>
-    <circle cx="190" cy="20" r="5" fill="#FF44AA"/>
-    <!-- Rear wheel -->
-    <circle cx="40" cy="20" r="10" fill="#111111" stroke="#FFEEFF" stroke-width="2"/>
-    <circle cx="40" cy="20" r="5" fill="#FF44AA"/>
+    <!-- We'll separate them into groups to rotate them -->
+    <g id="frontWheel">
+      <circle cx="190" cy="20" r="10" fill="#111111" stroke="#FFEEFF" stroke-width="2"/>
+      <circle cx="190" cy="20" r="5" fill="#FF44AA"/>
+      <animateTransform attributeName="transform"
+                        type="rotate"
+                        from="0 190 20"
+                        to="360 190 20"
+                        dur="0.7s"
+                        repeatCount="indefinite"/>
+    </g>
+    <g id="rearWheel">
+      <circle cx="40" cy="20" r="10" fill="#111111" stroke="#FFEEFF" stroke-width="2"/>
+      <circle cx="40" cy="20" r="5" fill="#FF44AA"/>
+      <animateTransform attributeName="transform"
+                        type="rotate"
+                        from="0 40 20"
+                        to="360 40 20"
+                        dur="0.7s"
+                        repeatCount="indefinite"/>
+    </g>
   </g>
 
   <!-- Optional: Some subtle stars or dust for retro ambiance -->
