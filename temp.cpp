@@ -19,10 +19,10 @@
 
 
 
+
 html, body {
   margin: 0; 
   padding: 0; 
-  overflow: hidden; 
   background: #000;
   font-family: 'Courier New', Courier, monospace;
   color: #fff;
@@ -59,50 +59,45 @@ html, body {
   const LANE_COUNT = 3;
   const CAR_WIDTH = 40;
   const CAR_HEIGHT = 70;
-  const CAR_SPEED = 5;
   const OBSTACLE_WIDTH = 40;
   const OBSTACLE_HEIGHT = 40;
   const COIN_SIZE = 20;
 
   // Perspective/Camera
-  const horizonY = H * 0.4;          // horizon line position
-  const fov = 300;                   // field of view for perspective
-  const playerZ = 0;                 // player is at z=0, objects come towards this point
+  const horizonY = H * 0.4;    // horizon line
+  const fov = 300;             // field of view
+  const playerZ = 0;           // player at z=0
   const laneWidth = ROAD_WIDTH / LANE_COUNT;
-  const laneOffsets = [-laneWidth, 0, laneWidth]; // lanes centered around x=0
+  const laneOffsets = [ -laneWidth, 0, laneWidth ]; // Lanes relative to center
 
   // Game State
   let score = 0;
   let lives = 3;
   let gameOver = false;
 
-  // Player position in x-lanes (0=left,1=middle,2=right)
+  // Player lane (0=left,1=middle,2=right)
   let playerLane = 1;
 
-  // Speed at which we move forward (Z-direction)
+  // Forward speed (movement of objects towards player)
   let forwardSpeed = 10;
 
-  // Arrays for obstacles and coins (each object: {lane: number, z: number, type:'obstacle'|'coin'})
+  // Objects array: { lane: number, z: number, type:'obstacle'|'coin' }
   let objects = [];
 
   // Neon Color Palette
   const neonPurple = '#ff00ff';
-  const neonCyan = '#00ffff';
-  const neonPink = '#ff0090';
+  const neonCyan   = '#00ffff';
+  const neonPink   = '#ff0090';
   const neonYellow = '#ffff00';
 
-  // Input Controls
-  let moveLeft = false;
-  let moveRight = false;
-
-  // Periodic spawns
+  // Spawn intervals and initial distances
   let obstacleTimer = 0;
   let coinTimer = 0;
-  const obstacleSpawnInterval = 100;   // frames between obstacle spawns
-  const coinSpawnInterval = 150;       // frames between coin spawns
-  const initialSpawnDistance = 2000;   // where new objects spawn in Z distance
+  const obstacleSpawnInterval = 100;  
+  const coinSpawnInterval = 150;     
+  const initialSpawnDistance = 2000; 
 
-  // Input events
+  // Key Press: Change lane
   document.addEventListener('keydown', e => {
     if ((e.key === 'ArrowLeft' || e.key === 'a') && playerLane > 0) {
       playerLane -= 1;
@@ -112,11 +107,12 @@ html, body {
     }
   });
 
-  // Helper: Project (x,z) to screen coordinates
-  // We assume player at (x=0,z=0). Objects have some lane offset (x) and a z distance.
-  // scale = fov/(fov+z)
-  // screenX = centerX + x*scale
-  // screenY = horizonY + (H - horizonY)*scale
+  // Lane X helper
+  function laneX(laneIndex) {
+    return laneOffsets[laneIndex];
+  }
+
+  // Project point from (x,z) to screen (x,y)
   function projectPoint(x, z) {
     const scale = fov / (fov + z);
     const screenX = (W/2) + x * scale;
@@ -124,37 +120,34 @@ html, body {
     return {x: screenX, y: screenY, scale: scale};
   }
 
-  // Lane X offset
-  function laneX(laneIndex) {
-    return laneOffsets[laneIndex];
-  }
-
-  // Spawn an obstacle
   function spawnObstacle() {
     const laneIndex = Math.floor(Math.random() * LANE_COUNT);
     objects.push({ lane: laneIndex, z: initialSpawnDistance, type:'obstacle' });
   }
 
-  // Spawn a coin
   function spawnCoin() {
     const laneIndex = Math.floor(Math.random() * LANE_COUNT);
     objects.push({ lane: laneIndex, z: initialSpawnDistance, type:'coin' });
   }
 
-  // Collision check in screen space:
-  // We'll approximate by checking if object's projected position near player's car position overlaps.
-  // Player always at bottom. We'll define player position in projection:
+  // Check collisions
   function checkCollisions() {
-    // Project player at z=0, x=0
-    // Player's "hitbox" in projected space depends on scale= fov/(fov+0)=fov/fov=1
-    // Player bottom center is at: (W/2, bottom)
-    // Player rect: x=(W/2 - CAR_WIDTH/2, W/2 + CAR_WIDTH/2), y=(H-CAR_HEIGHT, H)
-    const playerScreenX = W/2;
-    const playerScreenY = H - CAR_HEIGHT;
-    const playerHalfW = CAR_WIDTH/2;
-    const playerH = CAR_HEIGHT;
+    const toRemove = [];
+    // Player rect
+    // Player is drawn at bottom, based on playerLane
+    // Let's figure out player's screen position. Player is effectively at z=0, x= laneX(playerLane)
+    const playerXOffset = laneX(playerLane);
+    const pProj = projectPoint(playerXOffset, playerZ); 
+    // At z=0, scale = fov/(fov+0)=1, so pProj scale ~1. But we rely on the fixed bottom position:
+    const playerScreenX = pProj.x; 
+    const playerScreenY = H - CAR_HEIGHT - 20; 
+    const playerRect = {
+      x1: playerScreenX - CAR_WIDTH/2,
+      y1: playerScreenY,
+      x2: playerScreenX + CAR_WIDTH/2,
+      y2: playerScreenY + CAR_HEIGHT
+    };
 
-    // For each object, project and check overlap
     objects.forEach((obj, i) => {
       const x = laneX(obj.lane);
       const {x:ox, y:oy, scale} = projectPoint(x, obj.z);
@@ -167,17 +160,13 @@ html, body {
         oh = COIN_SIZE * scale;
       }
 
-      // Object center at ox, oy - let's center rect at that point
       const ox1 = ox - ow/2;
       const oy1 = oy - oh;
       const ox2 = ox + ow/2;
       const oy2 = oy;
 
-      const playerRect = {x1: playerScreenX - playerHalfW, y1: playerScreenY, x2: playerScreenX + playerHalfW, y2: playerScreenY+playerH};
-      const objRect = {x1: ox1, y1: oy1, x2: ox2, y2: oy2};
-
-      // Check overlap
-      if (rectOverlap(playerRect, objRect)) {
+      if (rectOverlap(playerRect.x1, playerRect.y1, playerRect.x2, playerRect.y2, ox1, oy1, ox2, oy2)) {
+        // Collision
         if (obj.type === 'obstacle') {
           lives--;
           if (lives <= 0) {
@@ -187,28 +176,33 @@ html, body {
         } else {
           score += 10;
         }
-        objects.splice(i,1);
+        toRemove.push(i);
       }
     });
+
+    // Remove collided objects
+    for (let i = toRemove.length - 1; i >= 0; i--) {
+      objects.splice(toRemove[i], 1);
+    }
   }
 
-  function rectOverlap(r1, r2) {
-    return !(r1.x2 < r2.x1 || r1.x1 > r2.x2 || r1.y2 < r2.y1 || r1.y1 > r2.y2);
+  function rectOverlap(x1,y1,x2,y2, X1,Y1,X2,Y2) {
+    return !(x2 < X1 || x1 > X2 || y2 < Y1 || y1 > Y2);
   }
 
   // Update logic
   function update() {
     if (gameOver) return;
 
-    // Move forward: decrease z of objects by forwardSpeed
+    // Move objects closer
     for (let i = 0; i < objects.length; i++) {
       objects[i].z -= forwardSpeed;
     }
 
-    // Remove objects that passed the player (z< -100 for a bit safety)
+    // Filter out objects that passed behind the player
     objects = objects.filter(o => o.z > -100);
 
-    // Spawn new objects periodically
+    // Spawn objects
     obstacleTimer++;
     if (obstacleTimer > obstacleSpawnInterval) {
       spawnObstacle();
@@ -221,6 +215,7 @@ html, body {
       coinTimer = 0;
     }
 
+    // Check collisions
     checkCollisions();
 
     // Update HUD
@@ -228,7 +223,7 @@ html, body {
     hud.innerHTML = `Score: ${score}<br>Lives: ${lives}${gameOver ? '<br><span style="color:#ff0000;">GAME OVER</span>' : ''}`;
   }
 
-  // Draw Background (Neon Sunset)
+  // Draw background
   function drawBackground() {
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(0, '#270031'); 
@@ -251,22 +246,14 @@ html, body {
     ctx.fill();
   }
 
-  // Draw road and lane lines
+  // Draw road
   function drawRoad() {
-    // We'll draw a series of lines to represent the road
-    // The road center x=0, width=ROAD_WIDTH
-    // Let's draw the left and right boundaries and lane dividers
-    const roadLeftX = -ROAD_WIDTH/2;
-    const roadRightX = ROAD_WIDTH/2;
-
-    // Draw road surface (just a big trapezoid blending into horizon)
-    // We'll draw multiple horizontal lines to create a neon grid effect
     ctx.strokeStyle = neonCyan;
     ctx.lineWidth = 1;
     ctx.setLineDash([5,5]);
     for (let z = 0; z < 2000; z += 200) {
-      const {x:xl, y:yl} = projectPoint(roadLeftX, z);
-      const {x:xr, y:yr} = projectPoint(roadRightX, z);
+      const {x:xl, y:yl} = projectPoint(-ROAD_WIDTH/2, z);
+      const {x:xr, y:yr} = projectPoint( ROAD_WIDTH/2, z);
       ctx.beginPath();
       ctx.moveTo(xl, yl);
       ctx.lineTo(xr, yr);
@@ -279,7 +266,7 @@ html, body {
     ctx.lineWidth = 2;
     ctx.setLineDash([10,10]);
     for (let l = 1; l < LANE_COUNT; l++) {
-      const lx = laneX(l) ;
+      const lx = laneX(l);
       ctx.beginPath();
       const {x:xl1,y:yl1} = projectPoint(lx,0);
       const {x:xl2,y:yl2} = projectPoint(lx,2000);
@@ -290,22 +277,24 @@ html, body {
     ctx.setLineDash([]);
   }
 
-  // Draw Car (player) at bottom center
+  // Draw car at playerLane
   function drawCar() {
+    const playerXOffset = laneX(playerLane);
+    // Project player's position to get the horizontal alignment, 
+    // but we actually fix the vertical position at bottom.
+    const pProj = projectPoint(playerXOffset, 0);
+    const carX = pProj.x;
+    const carY = H - CAR_HEIGHT - 20; 
     ctx.fillStyle = neonPink;
     ctx.shadowColor = neonPink;
     ctx.shadowBlur = 15;
-
-    const playerX = W/2; 
-    const playerY = H - CAR_HEIGHT - 20; // a bit above bottom
     ctx.beginPath();
-    ctx.rect(playerX - CAR_WIDTH/2, playerY, CAR_WIDTH, CAR_HEIGHT);
+    ctx.rect(carX - CAR_WIDTH/2, carY, CAR_WIDTH, CAR_HEIGHT);
     ctx.fill();
-
     ctx.shadowBlur = 0;
   }
 
-  // Draw objects (obstacles and coins)
+  // Draw objects
   function drawObjects() {
     objects.forEach(o => {
       const x = laneX(o.lane);
@@ -353,6 +342,7 @@ html, body {
     requestAnimationFrame(gameLoop);
   }
 
-  // Start
+  // Start the game
   gameLoop();
+
 })();
