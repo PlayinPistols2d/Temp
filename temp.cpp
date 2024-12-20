@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg width="800" height="600" viewBox="0 0 800 600" version="1.1" 
+<svg width="1920" height="1080" viewBox="0 0 1920 1080"
      xmlns="http://www.w3.org/2000/svg">
 
   <!-- Definitions for gradients and patterns -->
@@ -33,104 +33,143 @@
   </defs>
 
   <!-- Background sky -->
-  <rect x="0" y="0" width="800" height="600" fill="url(#sunsetGradient)" />
+  <rect x="0" y="0" width="1920" height="1080" fill="url(#sunsetGradient)" />
 
-  <!-- Stylized sun -->
-  <circle id="sun" cx="400" cy="300" r="80" fill="none" stroke="#FFDD99" stroke-width="4" opacity="0.8">
+  <!-- Stylized sun (centered) -->
+  <circle id="sun" cx="960" cy="540" r="150" fill="none" stroke="#FFDD99" stroke-width="8" opacity="0.8">
     <animate attributeName="stroke-width"
-             values="4;8;4"
+             values="8;16;8"
              dur="3s"
              repeatCount="indefinite"/>
   </circle>
 
   <!-- Horizon lines for a classic retro-wave look -->
-  <g stroke="#FF66CC" stroke-width="2" opacity="0.25">
-    <line x1="0" y1="370" x2="800" y2="370" />
-    <line x1="0" y1="390" x2="800" y2="390" />
-    <line x1="0" y1="410" x2="800" y2="410" />
-    <line x1="0" y1="430" x2="800" y2="430" />
-    <line x1="0" y1="450" x2="800" y2="450" />
-    <line x1="0" y1="470" x2="800" y2="470" />
-    <line x1="0" y1="490" x2="800" y2="490" />
-    <line x1="0" y1="510" x2="800" y2="510" />
-    <line x1="0" y1="530" x2="800" y2="530" />
+  <!-- We'll place lines starting near y=700 downwards -->
+  <g stroke="#FF66CC" stroke-width="3" opacity="0.25">
+    <line x1="0" y1="700" x2="1920" y2="700" />
+    <line x1="0" y1="730" x2="1920" y2="730" />
+    <line x1="0" y1="760" x2="1920" y2="760" />
+    <line x1="0" y1="790" x2="1920" y2="790" />
+    <line x1="0" y1="820" x2="1920" y2="820" />
+    <line x1="0" y1="850" x2="1920" y2="850" />
+    <line x1="0" y1="880" x2="1920" y2="880" />
+    <line x1="0" y1="910" x2="1920" y2="910" />
+    <line x1="0" y1="940" x2="1920" y2="940" />
+    <line x1="0" y1="970" x2="1920" y2="970" />
   </g>
 
   <!-- Foreground (road) -->
-  <rect x="0" y="370" width="800" height="230" fill="url(#roadGradient)" />
+  <rect x="0" y="700" width="1920" height="380" fill="url(#roadGradient)" />
 
   <!-- The wireframe grid on the road -->
   <g stroke="#FF00BB" stroke-width="1" opacity="0.2">
-    <!-- Vertical lines -->
-    <line x1="100" y1="370" x2="0" y2="600"/>
-    <line x1="200" y1="370" x2="50" y2="600"/>
-    <line x1="300" y1="370" x2="100" y2="600"/>
-    <line x1="400" y1="370" x2="150" y2="600"/>
-    <line x1="500" y1="370" x2="200" y2="600"/>
-    <line x1="600" y1="370" x2="250" y2="600"/>
-    <line x1="700" y1="370" x2="300" y2="600"/>
+    <!-- Vertical lines - perspective lines moving downward -->
+    <!-- We'll create a perspective by having them meet offscreen below -->
+    <line x1="200" y1="700" x2="-200" y2="1080"/>
+    <line x1="400" y1="700" x2="0"    y2="1080"/>
+    <line x1="600" y1="700" x2="200"  y2="1080"/>
+    <line x1="800" y1="700" x2="400"  y2="1080"/>
+    <line x1="1000" y1="700" x2="600" y2="1080"/>
+    <line x1="1200" y1="700" x2="800" y2="1080"/>
+    <line x1="1400" y1="700" x2="1000" y2="1080"/>
+    <line x1="1600" y1="700" x2="1200" y2="1080"/>
+    <line x1="1800" y1="700" x2="1400" y2="1080"/>
+
     <!-- Horizontal lines -->
-    <line x1="0" y1="400" x2="800" y2="400"/>
-    <line x1="0" y1="430" x2="800" y2="430"/>
-    <line x1="0" y1="460" x2="800" y2="460"/>
-    <line x1="0" y1="490" x2="800" y2="490"/>
-    <line x1="0" y1="520" x2="800" y2="520"/>
-    <line x1="0" y1="550" x2="800" y2="550"/>
+    <line x1="0" y1="730" x2="1920" y2="730"/>
+    <line x1="0" y1="760" x2="1920" y2="760"/>
+    <line x1="0" y1="790" x2="1920" y2="790"/>
+    <line x1="0" y1="820" x2="1920" y2="820"/>
+    <line x1="0" y1="850" x2="1920" y2="850"/>
+    <line x1="0" y1="880" x2="1920" y2="880"/>
+    <line x1="0" y1="910" x2="1920" y2="910"/>
+    <line x1="0" y1="940" x2="1920" y2="940"/>
+    <line x1="0" y1="970" x2="1920" y2="970"/>
   </g>
 
-  <!-- The Car Group (more quad-like) -->
-  <!-- We'll create a blocky shape: a main body rectangle, a cabin block, and front/back shapes less pointy. -->
-  <g id="car" transform="translate(-250,420) scale(0.8)">
-    <!-- Animate car movement -->
+  <!-- Palm Trees Silhouette (for extra detail) -->
+  <!-- Left Palm -->
+  <g fill="none" stroke="#111111" stroke-width="5">
+    <!-- Trunk -->
+    <path d="M150,700 L160,600 L165,500 L170,400" stroke="#000000"/>
+    <!-- Leaves -->
+    <path d="M170,400 C130,380,130,430,170,400" />
+    <path d="M170,400 C210,380,210,430,170,400" />
+    <path d="M170,400 C130,360,100,400,170,400" />
+    <path d="M170,400 C210,360,240,400,170,400" />
+  </g>
+
+  <!-- Right Palm -->
+  <g fill="none" stroke="#111111" stroke-width="5">
+    <path d="M1770,700 L1760,600 L1755,500 L1750,400" stroke="#000000"/>
+    <path d="M1750,400 C1710,380,1710,430,1750,400" />
+    <path d="M1750,400 C1790,380,1790,430,1750,400" />
+    <path d="M1750,400 C1710,360,1680,400,1750,400" />
+    <path d="M1750,400 C1790,360,1820,400,1750,400" />
+  </g>
+
+  <!-- The Car Group (blocky, quad-like), driving from right to left -->
+  <g id="car" transform="translate(2100,780) scale(1)">
+    <!-- Animate car movement from right (2100) to left (-400) -->
     <animateTransform attributeName="transform"
                       type="translate"
-                      from="-250,420"
-                      to="1000,420"
-                      dur="4s"
+                      from="2100,780"
+                      to="-400,780"
+                      dur="6s"
                       repeatCount="indefinite" />
-    <!-- Car body - a series of rectangles and gentle slopes -->
-    <!-- Body Base -->
-    <path d="M0 20 H240 V0 H220 V-10 H60 V0 H0 Z"
-          fill="url(#carBodyGradient)" stroke="#FFEEFF" stroke-width="2"/>
+    <!-- Car body -->
+    <path d="M0 40 H300 V10 H270 V0 H90 V10 H0 Z"
+          fill="url(#carBodyGradient)" stroke="#FFEEFF" stroke-width="4"/>
     <!-- Cabin top (windows) -->
-    <path d="M60 -10 H180 V-20 H80 Z"
-          fill="url(#windowGradient)" stroke="#8888AA" stroke-width="1"/>
-    <!-- Headlights -->
-    <rect x="230" y="5" width="5" height="3" fill="#FFDD66"/>
-    <rect x="5" y="5" width="5" height="3" fill="#66FFDD"/>
+    <path d="M90 0 H240 V-30 H100 Z"
+          fill="url(#windowGradient)" stroke="#8888AA" stroke-width="2"/>
+    <!-- Headlights (front is now on the left as it drives right-to-left, we flip them) -->
+    <rect x="5" y="15" width="8" height="5" fill="#FFDD66"/>
+    <rect x="290" y="15" width="8" height="5" fill="#66FFDD"/>
 
     <!-- Wheels -->
-    <!-- We'll separate them into groups to rotate them -->
     <g id="frontWheel">
-      <circle cx="190" cy="20" r="10" fill="#111111" stroke="#FFEEFF" stroke-width="2"/>
-      <circle cx="190" cy="20" r="5" fill="#FF44AA"/>
+      <circle cx="250" cy="40" r="15" fill="#111111" stroke="#FFEEFF" stroke-width="3"/>
+      <circle cx="250" cy="40" r="7" fill="#FF44AA"/>
       <animateTransform attributeName="transform"
                         type="rotate"
-                        from="0 190 20"
-                        to="360 190 20"
+                        from="0 250 40"
+                        to="360 250 40"
                         dur="0.7s"
                         repeatCount="indefinite"/>
     </g>
     <g id="rearWheel">
-      <circle cx="40" cy="20" r="10" fill="#111111" stroke="#FFEEFF" stroke-width="2"/>
-      <circle cx="40" cy="20" r="5" fill="#FF44AA"/>
+      <circle cx="60" cy="40" r="15" fill="#111111" stroke="#FFEEFF" stroke-width="3"/>
+      <circle cx="60" cy="40" r="7" fill="#FF44AA"/>
       <animateTransform attributeName="transform"
                         type="rotate"
-                        from="0 40 20"
-                        to="360 40 20"
+                        from="0 60 40"
+                        to="360 60 40"
                         dur="0.7s"
                         repeatCount="indefinite"/>
     </g>
   </g>
 
-  <!-- Optional: Some subtle stars or dust for retro ambiance -->
-  <g fill="#FFFFFF" opacity="0.5">
-    <circle cx="100" cy="100" r="1"/>
-    <circle cx="700" cy="150" r="1.5"/>
-    <circle cx="500" cy="80" r="2"/>
-    <circle cx="600" cy="220" r="1"/>
-    <circle cx="250" cy="50" r="1.5"/>
-    <circle cx="380" cy="180" r="1"/>
+  <!-- Stars: animate their opacity to make them glow and shine -->
+  <g fill="#FFFFFF">
+    <circle cx="300" cy="200" r="2">
+      <animate attributeName="opacity" values="1;0.2;1" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="600" cy="150" r="3">
+      <animate attributeName="opacity" values="1;0;1" dur="4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1200" cy="100" r="2">
+      <animate attributeName="opacity" values="1;0.2;1" dur="2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1700" cy="250" r="2">
+      <animate attributeName="opacity" values="1;0.3;1" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1400" cy="80" r="3">
+      <animate attributeName="opacity" values="1;0;1" dur="5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="900" cy="300" r="2">
+      <animate attributeName="opacity" values="1;0.2;1" dur="4s" repeatCount="indefinite"/>
+    </circle>
   </g>
 
 </svg>
