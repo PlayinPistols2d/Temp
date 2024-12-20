@@ -4,25 +4,36 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Neon Air Hockey</title>
-<style>
-  body {
-    margin: 0;
-    background: #000;
-    font-family: sans-serif;
-    color: #0ff;
-    user-select: none;
-    overflow: hidden;
-  }
-  canvas {
-    display: block;
-    margin: 0 auto;
-    background: #111;
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
-<script>
+<script src="game.js"></script>
+</body>
+</html>
+
+
+
+
+
+body {
+  margin: 0;
+  background: #000;
+  font-family: sans-serif;
+  color: #0ff;
+  user-select: none;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  margin: 0 auto;
+  background: #111;
+}
+
+
+
+
 (function() {
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -40,15 +51,25 @@
     // Game parameters
     const PADDLE_WIDTH = 20;
     const PADDLE_HEIGHT = 100;
-    const PADDLE_SPEED = 6;
+    const PADDLE_SPEED = 10; // increased speed
     const PUCK_RADIUS = 12;
-    const PUCK_SPEED = 7;
+    const INITIAL_PUCK_SPEED = 10; // increased initial puck speed
     const GOAL_LIMIT = 5;
 
+    // Physics parameters
+    const FRICTION = 0.999; // slight friction for the ball
+    const ELASTICITY = 1.1; // ball speeds up a bit after hitting paddle
+    const VELOCITY_TRANSFER = 0.5; // how much paddle velocity transfers to ball
+
     // Positions
-    let leftPaddleY, rightPaddleY;
+    let leftPaddleX, leftPaddleY;
+    let rightPaddleX, rightPaddleY;
     let puckX, puckY;
     let puckVelX, puckVelY;
+
+    // Store previous paddle positions to compute paddle velocity
+    let prevLeftPaddleX, prevLeftPaddleY;
+    let prevRightPaddleX, prevRightPaddleY;
 
     // Scores
     let leftScore = 0;
@@ -67,13 +88,21 @@
     });
 
     function resetPositions() {
+        leftPaddleX = 50;
         leftPaddleY = canvas.height/2 - PADDLE_HEIGHT/2;
+        rightPaddleX = canvas.width - 50 - PADDLE_WIDTH;
         rightPaddleY = canvas.height/2 - PADDLE_HEIGHT/2;
+
         puckX = canvas.width/2;
         puckY = canvas.height/2;
-        // Random direction at start
-        puckVelX = Math.random() > 0.5 ? PUCK_SPEED : -PUCK_SPEED;
-        puckVelY = (Math.random() - 0.5)*2*PUCK_SPEED;
+
+        puckVelX = Math.random() > 0.5 ? INITIAL_PUCK_SPEED : -INITIAL_PUCK_SPEED;
+        puckVelY = (Math.random() - 0.5)*2*INITIAL_PUCK_SPEED;
+
+        prevLeftPaddleX = leftPaddleX;
+        prevLeftPaddleY = leftPaddleY;
+        prevRightPaddleX = rightPaddleX;
+        prevRightPaddleY = rightPaddleY;
     }
 
     function resetGame() {
@@ -93,27 +122,59 @@
     }
 
     function handleInput() {
-        // Player 1: W,S for up/down, A,D for left/right (though usually not needed in air hockey)
+        // Player 1: W,S for vertical, A,D for horizontal
+        // Player 2: Arrow keys for movement
+        // Constrain paddles not to cross center line
+
+        // Left paddle movement
         if (keys['KeyW']) {
             leftPaddleY -= PADDLE_SPEED;
         }
         if (keys['KeyS']) {
             leftPaddleY += PADDLE_SPEED;
         }
-        // Player 2: Up/Down arrow keys
+        if (keys['KeyA']) {
+            leftPaddleX -= PADDLE_SPEED;
+        }
+        if (keys['KeyD']) {
+            leftPaddleX += PADDLE_SPEED;
+        }
+
+        // Right paddle movement
         if (keys['ArrowUp']) {
             rightPaddleY -= PADDLE_SPEED;
         }
         if (keys['ArrowDown']) {
             rightPaddleY += PADDLE_SPEED;
         }
+        if (keys['ArrowLeft']) {
+            rightPaddleX -= PADDLE_SPEED;
+        }
+        if (keys['ArrowRight']) {
+            rightPaddleX += PADDLE_SPEED;
+        }
 
-        // Prevent paddles from going out of the arena
+        // Boundary constraints - no going out of arena
         leftPaddleY = Math.max(0, Math.min(canvas.height - PADDLE_HEIGHT, leftPaddleY));
         rightPaddleY = Math.max(0, Math.min(canvas.height - PADDLE_HEIGHT, rightPaddleY));
+
+        // Prevent crossing center line
+        const midX = canvas.width / 2;
+        // Left paddle can't go beyond midX - PADDLE_WIDTH
+        if (leftPaddleX < 0) leftPaddleX = 0;
+        if (leftPaddleX > midX - PADDLE_WIDTH - 10) leftPaddleX = midX - PADDLE_WIDTH - 10;
+
+        // Right paddle can't go left of midX
+        if (rightPaddleX < midX + 10) rightPaddleX = midX + 10;
+        if (rightPaddleX > canvas.width - PADDLE_WIDTH) rightPaddleX = canvas.width - PADDLE_WIDTH;
+
     }
 
     function movePuck() {
+        // Apply friction
+        puckVelX *= FRICTION;
+        puckVelY *= FRICTION;
+
         puckX += puckVelX;
         puckY += puckVelY;
 
@@ -127,27 +188,47 @@
         }
 
         // Check collision with left paddle
-        if (puckX - PUCK_RADIUS < PADDLE_WIDTH + 10) { 
-            // Check if within paddle height
-            if (puckY > leftPaddleY && puckY < leftPaddleY + PADDLE_HEIGHT) {
-                puckX = PADDLE_WIDTH + 10 + PUCK_RADIUS;
-                puckVelX = -puckVelX;
-                // Add some "english" based on where it hit the paddle
-                let hitPos = (puckY - (leftPaddleY + PADDLE_HEIGHT/2)) / (PADDLE_HEIGHT/2);
-                puckVelY += hitPos * 2; 
-            }
+        // Paddles now at (leftPaddleX, leftPaddleY)
+        if (puckX - PUCK_RADIUS < leftPaddleX + PADDLE_WIDTH && 
+            puckX + PUCK_RADIUS > leftPaddleX && 
+            puckY + PUCK_RADIUS > leftPaddleY && 
+            puckY - PUCK_RADIUS < leftPaddleY + PADDLE_HEIGHT) {
+
+            // Move puck out of collision
+            puckX = leftPaddleX + PADDLE_WIDTH + PUCK_RADIUS;
+
+            // Compute paddle velocity
+            let paddleVx = leftPaddleX - prevLeftPaddleX;
+            let paddleVy = leftPaddleY - prevLeftPaddleY;
+
+            // Reflect and add some of paddle's velocity
+            puckVelX = -puckVelX * ELASTICITY + paddleVx * VELOCITY_TRANSFER;
+            puckVelY = puckVelY + paddleVy * VELOCITY_TRANSFER;
         }
 
         // Check collision with right paddle
-        if (puckX + PUCK_RADIUS > canvas.width - (PADDLE_WIDTH + 10)) {
-            // Check if within paddle height
-            if (puckY > rightPaddleY && puckY < rightPaddleY + PADDLE_HEIGHT) {
-                puckX = canvas.width - (PADDLE_WIDTH + 10) - PUCK_RADIUS;
-                puckVelX = -puckVelX;
-                let hitPos = (puckY - (rightPaddleY + PADDLE_HEIGHT/2)) / (PADDLE_HEIGHT/2);
-                puckVelY += hitPos * 2;
-            }
+        if (puckX + PUCK_RADIUS > rightPaddleX && 
+            puckX - PUCK_RADIUS < rightPaddleX + PADDLE_WIDTH && 
+            puckY + PUCK_RADIUS > rightPaddleY && 
+            puckY - PUCK_RADIUS < rightPaddleY + PADDLE_HEIGHT) {
+
+            // Move puck out of collision
+            puckX = rightPaddleX - PUCK_RADIUS;
+
+            // Compute paddle velocity
+            let paddleVx = rightPaddleX - prevRightPaddleX;
+            let paddleVy = rightPaddleY - prevRightPaddleY;
+
+            // Reflect and add some of paddle's velocity
+            puckVelX = -puckVelX * ELASTICITY + paddleVx * VELOCITY_TRANSFER;
+            puckVelY = puckVelY + paddleVy * VELOCITY_TRANSFER;
         }
+
+        // Store current paddle positions for next frame velocity calculation
+        prevLeftPaddleX = leftPaddleX;
+        prevLeftPaddleY = leftPaddleY;
+        prevRightPaddleX = rightPaddleX;
+        prevRightPaddleY = rightPaddleY;
     }
 
     function checkScore() {
@@ -229,9 +310,9 @@
         ctx.shadowColor = paddleGlow;
 
         // Left paddle
-        ctx.fillRect(10, leftPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
+        ctx.fillRect(leftPaddleX, leftPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
         // Right paddle
-        ctx.fillRect(canvas.width - 10 - PADDLE_WIDTH, rightPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
+        ctx.fillRect(rightPaddleX, rightPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
 
         ctx.shadowBlur = 0;
     }
@@ -315,6 +396,3 @@
     gameState = STATE_MENU;
     update();
 })();
-</script>
-</body>
-</html>
