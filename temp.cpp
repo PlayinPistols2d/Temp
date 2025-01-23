@@ -1,68 +1,90 @@
+#include <QCoreApplication>
 #include <QFile>
 #include <QTextStream>
 #include <QStringList>
-#include <QList>
 #include <QDebug>
 
-// Структура для хранения результатов
+// Для удобства храним результат вычислений в структуре
 struct ParsedData {
-    int StartBit;
-    int EndBit;
-    int StartWord;
-    int EndWord;
+    int startWord;
+    int startBit;
+    int endWord;
+    int endBit;
 };
 
-// Функция для парсинга CSV и вычисления конечных значений
-QList<ParsedData> parseCSV(const QString &filePath) {
-    QList<ParsedData> results;
+int main(int argc, char *argv[])
+{
+    QCoreApplication app(argc, argv);
 
-    QFile file(filePath);
+    // Укажите путь к вашему csv-файлу
+    QString csvFilePath = "data.csv";
+
+    QFile file(csvFilePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "Не удалось открыть файл:" << filePath;
-        return results;
+        qCritical() << "Не удалось открыть файл:" << csvFilePath;
+        return 1;
     }
 
     QTextStream in(&file);
-    while (!in.atEnd()) {
-        QString line = in.readLine();
-        if (line.isEmpty()) continue;
+    QList<ParsedData> parsedResults;  // список результатов
 
-        QStringList fields = line.split(",");
-        if (fields.size() < 3) {
-            qWarning() << "Некорректная строка:" << line;
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        // Пропускаем пустые строки и, например, комментарии (если есть)
+        if (line.isEmpty() || line.startsWith('#')) {
             continue;
         }
 
-        // Чтение полей из строки
-        int SW = fields[0].toInt(); // Номер слова
-        int SB = fields[1].toInt(); // Номер разряда
-        int LEN = fields[2].toInt(); // Длина бит
+        // Разбиваем строку по запятой
+        QStringList parts = line.split(',', Qt::SkipEmptyParts);
+        if (parts.size() < 3) {
+            // Недостаточно данных в строке
+            continue;
+        }
 
-        // Вычисление конечных бит и слова
-        int startWord = SW;
-        int startBit = SB;
-        int endBit = SB + LEN - 1;
-        int endWord = SW + endBit / 16; // 16 бит в слове
-        endBit %= 16; // Корректировка конечного бита
+        // Читаем SW, SB, LEN
+        bool okSW = false, okSB = false, okLEN = false;
+        int sw  = parts.at(0).toInt(&okSW);
+        int sb  = parts.at(1).toInt(&okSB);
+        int len = parts.at(2).toInt(&okLEN);
 
-        // Запись результата
-        results.append({startBit, endBit, startWord, endWord});
+        if (!okSW || !okSB || !okLEN) {
+            // Ошибка преобразования — пропускаем такую строку
+            continue;
+        }
+
+        // --------------------------
+        // Логика вычисления EndWord/EndBit
+        // --------------------------
+        int bitsPerWord = 16;
+
+        // Всего бит от начала всего массива до стартовой позиции
+        int totalStart = sw * bitsPerWord + sb;
+
+        // Индекс последнего бита (в абсолютном счёте)
+        int totalEnd   = totalStart + len - 1;
+
+        // Конечные позиции
+        int endBit     = totalEnd % bitsPerWord;
+        int endWord    = totalEnd / bitsPerWord;
+
+        ParsedData data;
+        data.startWord = sw;
+        data.startBit  = sb;
+        data.endWord   = endWord;
+        data.endBit    = endBit;
+
+        parsedResults.append(data);
     }
 
     file.close();
-    return results;
-}
 
-// Пример использования
-int main(int argc, char *argv[]) {
-    QString csvPath = "path/to/your/file.csv";
-    QList<ParsedData> parsedData = parseCSV(csvPath);
-
-    for (const auto &data : parsedData) {
-        qDebug() << "StartBit:" << data.StartBit
-                 << "EndBit:" << data.EndBit
-                 << "StartWord:" << data.StartWord
-                 << "EndWord:" << data.EndWord;
+    // Выведем полученный результат на консоль
+    for (const ParsedData &pd : parsedResults) {
+        qDebug() << "StartWord:" << pd.startWord
+                 << "StartBit:" << pd.startBit
+                 << "EndWord:" << pd.endWord
+                 << "EndBit:" << pd.endBit;
     }
 
     return 0;
