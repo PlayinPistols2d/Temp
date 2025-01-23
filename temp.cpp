@@ -1,37 +1,69 @@
-#include <QString>
+#include <QFile>
+#include <QTextStream>
 #include <QStringList>
+#include <QList>
 #include <QDebug>
 
-bool parseRange(const QString& input, double& minValue, double& maxValue) {
-    // Инициализация значений
-    minValue = 0.0;
-    maxValue = 0.0;
+// Структура для хранения результатов
+struct ParsedData {
+    int StartBit;
+    int EndBit;
+    int StartWord;
+    int EndWord;
+};
 
-    // Убираем квадратные скобки
-    QString cleanedInput = input;
-    cleanedInput.remove('[').remove(']');
+// Функция для парсинга CSV и вычисления конечных значений
+QList<ParsedData> parseCSV(const QString &filePath) {
+    QList<ParsedData> results;
 
-    // Заменяем запятую на точку для корректного парсинга чисел
-    cleanedInput.replace(',', '.');
-
-    // Разделяем строку по символу #
-    QStringList parts = cleanedInput.split('#');
-    if (parts.size() != 2) {
-        qWarning() << "Некорректный формат строки диапазона:" << input;
-        return false; // Возвращаем false, если строка некорректна
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Не удалось открыть файл:" << filePath;
+        return results;
     }
 
-    // Парсим минимальное и максимальное значения
-    bool minOk = false, maxOk = false;
-    minValue = parts[0].toDouble(&minOk);
-    maxValue = parts[1].toDouble(&maxOk);
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.isEmpty()) continue;
 
-    // Проверяем успешность преобразования
-    if (!minOk || !maxOk) {
-        qWarning() << "Ошибка преобразования значений в числа:" << input;
-        return false; // Возвращаем false при ошибке парсинга
+        QStringList fields = line.split(",");
+        if (fields.size() < 3) {
+            qWarning() << "Некорректная строка:" << line;
+            continue;
+        }
+
+        // Чтение полей из строки
+        int SW = fields[0].toInt(); // Номер слова
+        int SB = fields[1].toInt(); // Номер разряда
+        int LEN = fields[2].toInt(); // Длина бит
+
+        // Вычисление конечных бит и слова
+        int startWord = SW;
+        int startBit = SB;
+        int endBit = SB + LEN - 1;
+        int endWord = SW + endBit / 16; // 16 бит в слове
+        endBit %= 16; // Корректировка конечного бита
+
+        // Запись результата
+        results.append({startBit, endBit, startWord, endWord});
     }
 
-    // Возвращаем true, если минимальное значение отрицательное
-    return minValue < 0;
+    file.close();
+    return results;
+}
+
+// Пример использования
+int main(int argc, char *argv[]) {
+    QString csvPath = "path/to/your/file.csv";
+    QList<ParsedData> parsedData = parseCSV(csvPath);
+
+    for (const auto &data : parsedData) {
+        qDebug() << "StartBit:" << data.StartBit
+                 << "EndBit:" << data.EndBit
+                 << "StartWord:" << data.StartWord
+                 << "EndWord:" << data.EndWord;
+    }
+
+    return 0;
 }
