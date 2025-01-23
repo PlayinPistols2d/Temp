@@ -1,91 +1,72 @@
-#include <QCoreApplication>
-#include <QFile>
-#include <QTextStream>
-#include <QStringList>
-#include <QDebug>
+#ifndef CUSTOMVERTICALHEADER_H
+#define CUSTOMVERTICALHEADER_H
 
-// Для удобства храним результат вычислений в структуре
-struct ParsedData {
-    int startWord;
-    int startBit;
-    int endWord;
-    int endBit;
+#include <QHeaderView>
+#include <QPainter>
+
+class CustomVerticalHeader : public QHeaderView
+{
+    Q_OBJECT
+public:
+    explicit CustomVerticalHeader(Qt::Orientation orientation, QWidget *parent = nullptr)
+        : QHeaderView(orientation, parent) {}
+
+protected:
+    void paintSection(QPainter *painter, const QRect &rect, int logicalIndex) const override
+    {
+        if (orientation() == Qt::Vertical) {
+            // Рисуем фоновую часть
+            painter->save();
+            painter->fillRect(rect, this->palette().base());
+            painter->restore();
+
+            // Устанавливаем шрифт и цвет
+            painter->setFont(this->font());
+            painter->setPen(this->palette().text().color());
+
+            // Нумерация строк с 0
+            QString text = QString::number(logicalIndex);
+
+            // Центрируем текст
+            painter->drawText(rect, Qt::AlignCenter, text);
+        } else {
+            QHeaderView::paintSection(painter, rect, logicalIndex);
+        }
+    }
 };
+
+#endif // CUSTOMVERTICALHEADER_H
+
+
+
+#include "CustomVerticalHeader.h"
+#include <QApplication>
+#include <QTableView>
+#include <QStandardItemModel>
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication app(argc, argv);
+    QApplication app(argc, argv);
 
-    // Укажите путь к вашему csv-файлу
-    QString csvFilePath = "data.csv";
+    QTableView tableView;
+    QStandardItemModel model(10, 5); // Таблица 10x5
 
-    QFile file(csvFilePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qCritical() << "Не удалось открыть файл:" << csvFilePath;
-        return 1;
+    // Заполняем таблицу данными
+    for (int row = 0; row < model.rowCount(); ++row) {
+        for (int col = 0; col < model.columnCount(); ++col) {
+            model.setItem(row, col, new QStandardItem(QString::number(row * col)));
+        }
     }
 
-    QTextStream in(&file);
-    QList<ParsedData> parsedResults;  // список результатов
+    // Устанавливаем модель
+    tableView.setModel(&model);
 
-    while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
-        // Пропускаем пустые строки и, например, комментарии (если есть)
-        if (line.isEmpty() || line.startsWith('#')) {
-            continue;
-        }
+    // Устанавливаем кастомный вертикальный заголовок
+    auto *header = new CustomVerticalHeader(Qt::Vertical, &tableView);
+    tableView.setVerticalHeader(header);
 
-        // Разбиваем строку по запятой
-        QStringList parts = line.split(',', Qt::SkipEmptyParts);
-        if (parts.size() < 3) {
-            // Недостаточно данных в строке
-            continue;
-        }
+    // Отображаем таблицу
+    tableView.show();
 
-        // Читаем SW, SB, LEN
-        bool okSW = false, okSB = false, okLEN = false;
-        int sw  = parts.at(0).toInt(&okSW);
-        int sb  = parts.at(1).toInt(&okSB);
-        int len = parts.at(2).toInt(&okLEN);
-
-        if (!okSW || !okSB || !okLEN) {
-            // Ошибка преобразования — пропускаем такую строку
-            continue;
-        }
-
-        // --------------------------
-        // Логика вычисления EndWord/EndBit
-        // --------------------------
-        int bitsPerWord = 16;
-
-        // Всего бит от начала всего массива до стартовой позиции
-        int totalStart = sw * bitsPerWord + sb;
-
-        // Индекс последнего бита (в абсолютном счёте)
-        int totalEnd   = totalStart + len - 1;
-
-        // Конечные позиции
-        int endBit     = totalEnd % bitsPerWord;
-        int endWord    = totalEnd / bitsPerWord;
-
-        ParsedData data;
-        data.startWord = sw;
-        data.startBit  = sb;
-        data.endWord   = endWord;
-        data.endBit    = endBit;
-
-        parsedResults.append(data);
-    }
-
-    file.close();
-
-    // Выведем полученный результат на консоль
-    for (const ParsedData &pd : parsedResults) {
-        qDebug() << "StartWord:" << pd.startWord
-                 << "StartBit:" << pd.startBit
-                 << "EndWord:" << pd.endWord
-                 << "EndBit:" << pd.endBit;
-    }
-
-    return 0;
+    return app.exec();
 }
