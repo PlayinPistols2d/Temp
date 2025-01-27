@@ -1,11 +1,22 @@
-#include <QVector>
 #include <QDebug>
+#include <QVector>
 #include <QString>
-#include <cstdint>
+#include <cmath>      // для std::isnan, std::isinf и т.д. при желании
 
+struct Param
+{
+    double value;      // Значение параметра
+    int startBit;      // Начальный бит (0..15)
+    int endBit;        // Конечный бит (0..15), >= startBit
+    int startWord;     // Начальное слово (номер 16-битного слова)
+    int endWord;       // Конечное слово (номер 16-битного слова)
+};
+
+//------------------------------------------------------------------------------
+//  Функции для получения "сырых" битов IEEE754 (как раньше)
+//------------------------------------------------------------------------------
 static quint64 doubleToIEEE754_64(double d)
 {
-    // Union для «достать» 64-битное представление double
     union {
         double d;
         quint64 u;
@@ -16,7 +27,6 @@ static quint64 doubleToIEEE754_64(double d)
 
 static quint32 floatToIEEE754_32(float f)
 {
-    // Union для «достать» 32-битное представление float
     union {
         float f;
         quint32 u;
@@ -26,52 +36,31 @@ static quint32 floatToIEEE754_32(float f)
 }
 
 /*!
- * \brief Преобразовать double в биты IEEE754, учитывая желаемое кол-во бит (16, 32, 64…).
+ * \brief Преобразовать значение double в биты IEEE754 на столько бит, сколько нужно.
  *
- * Если totalBits <= 16 — (пример: half-precision) здесь нет готовой функции в стандартном C++,
- *   придётся реализовать вручную. Для примера — просто «обрежем» 32-битный float или 64-битный double,
- *   но корректной конверсии half-precision тут не будет.
- *
- * Если 16 < totalBits <= 32 — используем float (single precision, 32 бита).
- * Если totalBits > 32        — используем double (64 бита).
- *
- * Возвращаем результат в 64-битном числе \a rawBits; реально значимые — только младшие totalBits.
+ * - Если totalBits <= 32, интерпретируем как float (single precision, 32 бита).
+ *   Берём из полученных 32 только младшие totalBits.
+ * - Если totalBits > 32, берём double (64 бита) и,
+ *   если totalBits < 64, отрезаем верхние (64 - totalBits) биты.
  */
 static quint64 getIeee754Bits(double value, int totalBits)
 {
-    if (totalBits <= 16)
+    if (totalBits <= 32)
     {
-        //
-        // Условно: half-precision (не совсем корректная реализация),
-        // но в качестве примера — берём float32 и обрезаем верхние 16 бит
-        //
+        // Используем float (32 бита)
         float f = static_cast<float>(value);
-        quint32 raw32 = floatToIEEE754_32(f);
+        quint64 raw32 = floatToIEEE754_32(f);
 
-        // Возьмём только младшие 16 бит (это грубое «обрезание» float до half)
-        // В реальной задаче можно написать отдельную функцию, которая
-        // по правилам half-precision всё упакует (экспонента, мантисса и т.д.)
-        quint64 result = raw32 & 0xFFFFu;
-        return result;
-    }
-    else if (totalBits <= 32)
-    {
-        float f = static_cast<float>(value);
-        quint32 raw32 = floatToIEEE754_32(f);
-
-        // Обрежем, если totalBits < 32
-        if (totalBits < 32) {
-            quint64 mask = (1ULL << totalBits) - 1ULL;
-            return static_cast<quint64>(raw32) & mask;
-        } else {
-            return static_cast<quint64>(raw32);
-        }
+        quint64 mask = (1ULL << totalBits) - 1ULL;  
+        return (raw32 & mask);
     }
     else
     {
-        // totalBits > 32 => double (64 бита)
+        // Используем double (64 бита)
         quint64 raw64 = doubleToIEEE754_64(value);
-        if (totalBits < 64) {
+
+        if (totalBits < 64)
+        {
             quint64 mask = (1ULL << totalBits) - 1ULL;
             raw64 &= mask;
         }
@@ -79,75 +68,74 @@ static quint64 getIeee754Bits(double value, int totalBits)
     }
 }
 
-
-
-
+//------------------------------------------------------------------------------
+//  Основная функция
+//------------------------------------------------------------------------------
 void fillWords(const QVector<Param> &params)
 {
-    // 1) Определяем, сколько всего 16-битных слов нам понадобится
+    // 1) Определяем, сколько всего 16-битных слов нужно
     int maxWord = 0;
     for (const auto &p : params) {
         if (p.endWord > maxWord) {
             maxWord = p.endWord;
         }
     }
+
+    // Создаём вектор для слов (каждое - 16 бит), инициализируем нулями
     QVector<quint16> words(maxWord + 1, 0);
 
     // 2) Заполняем слова для каждого параметра
     for (const auto &p : params)
     {
-        int totalBits = p.endBit - p.startBit + 1;  // сколько бит занимает параметр
+        int totalBits = p.endBit - p.startBit + 1;  // длина в битах
 
-        // Получим «сырой» набор бит для этого параметра
-        quint64 rawBits = 0;
-
-        if (p.isIeee754)
+        // --- Проверяем: это "побитовый" параметр или нет? ---
+        if (totalBits == 1)
         {
-            // Интерпретируем value как float/double (IEEE 754)
-            // и берём ровно totalBits из младших бит
-            rawBits = getIeee754Bits(p.value, totalBits);
+            // --- Кейс 1: Один бит ---
+            // Здесь НЕ делаем IEEE754, просто устанавливаем бит, если value != 0
+            if (p.value != 0.0)
+            {
+                // Ставим этот 1 бит
+                words[p.startWord] |= (1 << p.startBit);
+            }
         }
         else
         {
-            // Обычный «целочисленный» способ:
-            // просто берём value как 64-битное целое и обрезаем сверху, если totalBits < 64
-            quint64 tmp = static_cast<quint64>(p.value); 
-            if (totalBits < 64) {
-                quint64 mask = (1ULL << totalBits) - 1ULL;
-                tmp &= mask;
-            }
-            rawBits = tmp;
-        }
+            // --- Кейс 2: Более одного бита ---
+            // Идём по прежней схеме: берём сырые биты IEEE754
+            quint64 rawBits = getIeee754Bits(p.value, totalBits);
 
-        // Теперь кладём эти (totalBits) бит в общий массив words
-        // Логика: идём с младшего бита rawBits (LSB) к старшему
-        int bitIndexInValue = 0;
-        int currentWord = p.startWord;
-        int currentBitInWord = p.startBit;
+            // Раскладываем их, начиная с младшего бита
+            int bitIndexInValue = 0;
+            int currentWord = p.startWord;
+            int currentBitInWord = p.startBit;
 
-        while (bitIndexInValue < totalBits)
-        {
-            bool bitSet = ((rawBits >> bitIndexInValue) & 1ULL) != 0ULL;
-            if (bitSet) {
-                words[currentWord] |= (1 << currentBitInWord);
-            }
+            while (bitIndexInValue < totalBits)
+            {
+                bool bitSet = ((rawBits >> bitIndexInValue) & 1ULL) != 0ULL;
+                if (bitSet)
+                {
+                    words[currentWord] |= (1 << currentBitInWord);
+                }
 
-            ++bitIndexInValue;
-            ++currentBitInWord;
+                ++bitIndexInValue;
+                ++currentBitInWord;
 
-            // Если вышли за границы 16-битного слова, переходим к следующему слову
-            if (currentBitInWord > 15) {
-                currentBitInWord = 0;
-                ++currentWord;
+                if (currentBitInWord > 15)
+                {
+                    currentBitInWord = 0;
+                    ++currentWord;
+                }
             }
         }
     }
 
-    // 3) Отладочный вывод
-    for (int i = 0; i < words.size(); ++i) {
+    // 3) Выводим результат (каждое слово в hex-формате)
+    for (int i = 0; i < words.size(); ++i)
+    {
         qDebug() << QString("Word %1: 0x%2")
                     .arg(i)
                     .arg(words[i], 4, 16, QChar('0'));
     }
 }
-
