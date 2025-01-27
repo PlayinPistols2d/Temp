@@ -1,20 +1,18 @@
 #include <QDebug>
 #include <QVector>
 #include <QString>
-#include <cmath>      // для std::isnan, std::isinf и т.д. при желании
+#include <QStringList>
+#include <cmath>
 
 struct Param
 {
     double value;      // Значение параметра
     int startBit;      // Начальный бит (0..15)
-    int endBit;        // Конечный бит (0..15), >= startBit
+    int endBit;        // Конечный бит (0..15)
     int startWord;     // Начальное слово (номер 16-битного слова)
     int endWord;       // Конечное слово (номер 16-битного слова)
 };
 
-//------------------------------------------------------------------------------
-//  Функции для получения "сырых" битов IEEE754 (как раньше)
-//------------------------------------------------------------------------------
 static quint64 doubleToIEEE754_64(double d)
 {
     union {
@@ -38,27 +36,27 @@ static quint32 floatToIEEE754_32(float f)
 /*!
  * \brief Преобразовать значение double в биты IEEE754 на столько бит, сколько нужно.
  *
+ * - Если totalBits == 1 — считаем, что это "побитовой" параметр (см. код ниже),
+ *   и обойдёмся без IEEE754 в основной логике.
  * - Если totalBits <= 32, интерпретируем как float (single precision, 32 бита).
- *   Берём из полученных 32 только младшие totalBits.
- * - Если totalBits > 32, берём double (64 бита) и,
- *   если totalBits < 64, отрезаем верхние (64 - totalBits) биты.
+ * - Если totalBits > 32, берём double (64 бита).
+ *
+ * Из полученного "сыра" (32/64 бита) берём только младшие totalBits (маской).
  */
 static quint64 getIeee754Bits(double value, int totalBits)
 {
+    // Если (по логике) не отсекаем 1-битные параметры здесь, а обрабатываем в основном коде
+    // — пропускаем этот случай. Иначе можно тут же проверять, if (totalBits == 1) ...
     if (totalBits <= 32)
     {
-        // Используем float (32 бита)
         float f = static_cast<float>(value);
         quint64 raw32 = floatToIEEE754_32(f);
-
-        quint64 mask = (1ULL << totalBits) - 1ULL;  
+        quint64 mask = (1ULL << totalBits) - 1ULL;
         return (raw32 & mask);
     }
     else
     {
-        // Используем double (64 бита)
         quint64 raw64 = doubleToIEEE754_64(value);
-
         if (totalBits < 64)
         {
             quint64 mask = (1ULL << totalBits) - 1ULL;
@@ -68,12 +66,23 @@ static quint64 getIeee754Bits(double value, int totalBits)
     }
 }
 
-//------------------------------------------------------------------------------
-//  Основная функция
-//------------------------------------------------------------------------------
-void fillWords(const QVector<Param> &params)
+/*!
+ * \brief Заполняет 16-битные слова на основе параметров, записывая результат в QStringList.
+ *
+ * Если параметр занимает ровно 1 бит (startBit == endBit), считаем, что это "побитовый" режим
+ * и не используем IEEE754-представление, а просто ставим 1 или 0 (в зависимости от value).
+ *
+ * Если параметр занимает 2 и более бит, тогда:
+ *   - Берём IEEE754-представление (32 или 64 бита),
+ *   - Отрезаем лишние старшие биты (если totalBits < 32/64),
+ *   - Раскладываем младшие биты по слову(ам).
+ *
+ * Результирующие слова (по количеству maxWord+1) складываются в 'outputWords'
+ * как строки вида "0x0000" и т.д.
+ */
+void fillWords(const QVector<Param> &params, QStringList &outputWords)
 {
-    // 1) Определяем, сколько всего 16-битных слов нужно
+    // 1) Вычисляем, сколько нужно 16-битных слов
     int maxWord = 0;
     for (const auto &p : params) {
         if (p.endWord > maxWord) {
@@ -81,32 +90,27 @@ void fillWords(const QVector<Param> &params)
         }
     }
 
-    // Создаём вектор для слов (каждое - 16 бит), инициализируем нулями
+    // 2) Создаём вектор слов (16-бит), инициализируем нулями
     QVector<quint16> words(maxWord + 1, 0);
 
-    // 2) Заполняем слова для каждого параметра
+    // 3) Заполняем слова
     for (const auto &p : params)
     {
-        int totalBits = p.endBit - p.startBit + 1;  // длина в битах
+        int totalBits = p.endBit - p.startBit + 1;
 
-        // --- Проверяем: это "побитовый" параметр или нет? ---
+        // Проверка: если ровно 1 бит, значит "побитовой" режим
         if (totalBits == 1)
         {
-            // --- Кейс 1: Один бит ---
-            // Здесь НЕ делаем IEEE754, просто устанавливаем бит, если value != 0
+            // Ставим бит, если value != 0
             if (p.value != 0.0)
-            {
-                // Ставим этот 1 бит
                 words[p.startWord] |= (1 << p.startBit);
-            }
         }
         else
         {
-            // --- Кейс 2: Более одного бита ---
-            // Идём по прежней схеме: берём сырые биты IEEE754
+            // Берём биты IEEE754 (32 или 64), обрезаем лишние
             quint64 rawBits = getIeee754Bits(p.value, totalBits);
 
-            // Раскладываем их, начиная с младшего бита
+            // Раскладываем
             int bitIndexInValue = 0;
             int currentWord = p.startWord;
             int currentBitInWord = p.startBit;
@@ -115,13 +119,12 @@ void fillWords(const QVector<Param> &params)
             {
                 bool bitSet = ((rawBits >> bitIndexInValue) & 1ULL) != 0ULL;
                 if (bitSet)
-                {
                     words[currentWord] |= (1 << currentBitInWord);
-                }
 
                 ++bitIndexInValue;
                 ++currentBitInWord;
 
+                // Следующее 16-битное слово?
                 if (currentBitInWord > 15)
                 {
                     currentBitInWord = 0;
@@ -131,11 +134,12 @@ void fillWords(const QVector<Param> &params)
         }
     }
 
-    // 3) Выводим результат (каждое слово в hex-формате)
+    // 4) Формируем строки вида "0x0000" для каждого слова и кладём в outputWords
+    outputWords.clear();
     for (int i = 0; i < words.size(); ++i)
     {
-        qDebug() << QString("Word %1: 0x%2")
-                    .arg(i)
-                    .arg(words[i], 4, 16, QChar('0'));
+        // Можно в верхнем регистре: .toUpper()
+        QString hexStr = QString("0x%1").arg(words[i], 4, 16, QChar('0')).toUpper();
+        outputWords.append(hexStr);
     }
 }
