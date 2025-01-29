@@ -1,254 +1,249 @@
 #include <QVector>
 #include <QDebug>
-#include <QtEndian> // при необходимости для дополнительных функций
+#include <algorithm> // std::reverse
 
-enum class ParamType {
-    Int,
-    UInt,
-    Float32,
-    Float64
+// Структура параметра
+struct Param
+{
+    double value;   // само значение (может быть 5.0, 3.14, 123.0 и т.д.)
+    int startBit;   // начальный бит в слове
+    int endBit;     // конечный бит в слове
+    int startWord;  // индекс начального 16-битного слова
+    int endWord;    // индекс конечного 16-битного слова
+    QString tp;     // "int", "uint", "float", "double"
 };
 
-struct Param {
-    double value;      // хранит число (может быть целым в виде double)
-    int startBit;      // начальный бит (0..15) в startWord
-    int endBit;        // конечный бит (0..15) в endWord
-    int startWord;     // начальное слово (0..N)
-    int endWord;       // конечное слово (startWord..N)
-    ParamType tp;      // тип, от которого зависит, как интерпретировать value
-};
+//------------------------------------------------------------------------------
+// Вспомогательные функции
+//------------------------------------------------------------------------------
 
-///
-/// \brief Преобразует double в 64-битный паттерн IEEE754
-///
-static quint64 doubleToRaw64(double d)
+// Преобразуем float -> 4 байта (Little-Endian по байтам)
+QByteArray floatToBytes(float f)
 {
-    static_assert(sizeof(double) == 8, "Double must be 8 bytes");
-    union {
-        double d;
-        quint64 u64;
-    } conv;
-    conv.d = d;
-    return conv.u64;
-}
-
-///
-/// \brief Преобразует double (считая его float) в 32-битный паттерн IEEE754
-///   Важно: мы явно приводим double к float, затем берём биты
-///
-static quint32 floatToRaw32(double d)
-{
-    static_assert(sizeof(float) == 4, "Float must be 4 bytes");
+    QByteArray arr;
+    arr.resize(4);
     union {
         float f;
         quint32 u32;
-    } conv;
-    conv.f = static_cast<float>(d);
-    return conv.u32;
+    } convert;
+    convert.f = f;
+    for (int i = 0; i < 4; ++i) {
+        arr[i] = static_cast<char>((convert.u32 >> (8 * i)) & 0xFF);
+    }
+    return arr;
 }
 
-///
-/// \brief Формирует вектор 16-битных слов по списку параметров
-///        с учётом startBit, endBit, startWord, endWord и типа tp.
-///
-QVector<quint16> packParamsToWords(const QVector<Param> &params)
+// Преобразуем double -> 8 байт (Little-Endian по байтам)
+QByteArray doubleToBytes(double d)
 {
-    // Определяем, сколько всего слов нам потенциально нужно.
-    int maxWord = 0;
-    for (auto &p : params) {
-        if (p.endWord > maxWord) {
-            maxWord = p.endWord;
-        }
+    QByteArray arr;
+    arr.resize(8);
+    union {
+        double d;
+        quint64 u64;
+    } convert;
+    convert.d = d;
+    for (int i = 0; i < 8; ++i) {
+        arr[i] = static_cast<char>((convert.u64 >> (8 * i)) & 0xFF);
     }
+    return arr;
+}
 
-    // Буфер итоговых слов, инициализируем нулями.
-    // +1, т.к. если maxWord=5, то нам нужны индексы [0..5].
-    QVector<quint16> words(maxWord + 1, 0);
+// Разбиваем массив байтов (количество байт кратно 2) на 16-битные слова.
+// bytes[0] = младший байт слова0, bytes[1] = старший байт слова0, и т.д.
+QVector<quint16> bytesToWords(const QByteArray &bytes)
+{
+    QVector<quint16> words;
+    int n = bytes.size() / 2;
+    words.resize(n);
 
-    // Функция "установить бит в нужное место" (в 16-битном слове)
-    auto setBitInWord = [&](quint16 &word, int bitPos, bool bitVal){
-        // bitPos от 0 до 15
-        if (bitVal) {
-            word |= (1 << bitPos);
-        } else {
-            word &= ~(1 << bitPos);
-        }
-    };
-
-    // Для удобства — вспомогательная лямбда, чтобы выводить слово в hex
-    auto debugWordHex = [&](int wIndex){
-        // Допустим, хотим вывести в формате 0xABCD
-        qDebug() << QString("word[%1] = 0x%2")
-                    .arg(wIndex)
-                    .arg(words[wIndex], 4, 16, QLatin1Char('0')).toUpper();
-    };
-
-    // Обрабатываем каждый параметр по очереди
-    for (int pIndex = 0; pIndex < params.size(); ++pIndex) {
-        const Param &p = params[pIndex];
-        int paramBits = p.endBit - p.startBit + 1;
-
-        // 1. Получаем "сырой" битовый паттерн из p.value согласно типу
-        //    Здесь предполагается, что если тип int/uint, то можно взять
-        //    нижние 32 (или 64) бит в зависимости от того, что вам нужно.
-        //    Часто под int подразумевают 32 бита, но это уже детали протокола.
-        //    Покажем оба случая условно.
-        quint64 rawBits = 0; // будем хранить максимум 64 бита
-
-        switch (p.tp) {
-        case ParamType::Int: {
-            // Предположим 32-битный int
-            qint32 tmp = static_cast<qint32>(p.value); 
-            // Приводим к 64, чтобы удобно дальше сдвигать
-            rawBits = static_cast<quint64>(static_cast<qint64>(tmp));
-            break;
-        }
-        case ParamType::UInt: {
-            // Предположим тоже 32 бита
-            quint32 tmp = static_cast<quint32>(p.value);
-            rawBits = tmp;
-            break;
-        }
-        case ParamType::Float32: {
-            quint32 tmp = floatToRaw32(p.value);
-            rawBits = tmp;
-            break;
-        }
-        case ParamType::Float64: {
-            quint64 tmp = doubleToRaw64(p.value);
-            rawBits = tmp;
-            break;
-        }
-        }
-
-        // 2. Теперь у нас есть rawBits (до 64 бит). В реальности,
-        //    если paramBits < 64, мы возьмём только младшие paramBits.
-        //    Часто в протоколах, если это float32, то paramBits = 32 и т.д.
-        //    Но допустим, что параметр может не все биты использовать.
-        quint64 mask = 0;
-        if (paramBits == 64) {
-            mask = 0xFFFFFFFFFFFFFFFFull;
-        } else {
-            mask = ((1ull << paramBits) - 1ull);  // paramBits не более 64
-        }
-        quint64 paramValueBits = rawBits & mask;  // нужные нам биты
-
-        // 3. Записываем эти биты в итоговый буфер в диапазон [startBit..endBit],
-        //    распространяясь по словам [startWord..endWord].
-        //    Идём по всем битам paramValueBits (от 0 до paramBits-1).
-        //    bit i в paramValueBits пойдёт в общий буфер в позицию (startBit + i).
-        for (int i = 0; i < paramBits; ++i) {
-            // Берём i-й бит из paramValueBits
-            bool bitVal = ((paramValueBits >> i) & 1ull) != 0;
-            // Глобальная позиция бита относительно начала параметра:
-            int globalBitPos = p.startBit + i;
-            // Какое слово (16-бит) и какой бит внутри слова
-            int wordIndex = p.startWord + (globalBitPos / 16);
-            int bitInWord = globalBitPos % 16;
-            // Устанавливаем
-            setBitInWord(words[wordIndex], bitInWord, bitVal);
-        }
-
-        // 4. Если параметр "целиком" занимает несколько слов, делаем перестановку слов
-        //    согласно правилу endian swap: для float32 (2 слова), для double64 (4 слова).
-        //    (При условии, что startBit=0 и endBit=31 или 63, иначе будьте аккуратны!)
-        int numWords = p.endWord - p.startWord + 1;
-        // Для float32 ожидаем numWords=2, для float64 - 4.
-        // Если это int/uint, смотрите по ситуациям.
-        if ((p.tp == ParamType::Float32 && numWords == 2 && p.startBit == 0 && p.endBit == 31)
-            || (p.tp == ParamType::Float64 && numWords == 4 && p.startBit == 0 && p.endBit == 63))
-        {
-            // Переворачиваем
-            for (int i = 0; i < numWords/2; ++i) {
-                qSwap(words[p.startWord + i], words[p.startWord + (numWords - 1 - i)]);
-            }
-        }
-        // Аналогично можно прописать логику для int/uint, если они занимают ровно 2 или 4 слова.
-
-        // 5. Вывод в debug. Здесь по условию может быть разная логика.
-        //    Например, выводить все затронутые слова. Или только те, что "закрылись".
-        //    Упростим: просто выведем все слова [startWord..endWord], раз уж мы их
-        //    дописали.
-        for (int w = p.startWord; w <= p.endWord; ++w) {
-            debugWordHex(w);
-        }
+    for (int i = 0; i < n; ++i) {
+        quint8 low  = static_cast<quint8>(bytes[2*i]);
+        quint8 high = static_cast<quint8>(bytes[2*i + 1]);
+        quint16 w = (static_cast<quint16>(high) << 8) | low;
+        words[i] = w;
     }
-
-    // Если нужно, можно в конце дополнительно вывести все слова:
-    // for (int w = 0; w < words.size(); ++w) {
-    //     debugWordHex(w);
-    // }
-
     return words;
 }
 
-// ------------------------------------------------------------------
-// Пример вызова:
-
-void exampleUsage()
+// Переворачиваем порядок 16-битных слов (w0, w1, w2, w3 -> w3, w2, w1, w0)
+void reverseWords(QVector<quint16> &words)
 {
-    QVector<Param> params;
+    std::reverse(words.begin(), words.end());
+}
 
-    // Пример 1. Параметр float32, занимает 32 бита (2 слова):
-    {
-        Param p;
-        p.value = 3.14;         // как double, но мы будем трактовать его как float
-        p.startBit = 0;
-        p.endBit = 31;
-        p.startWord = 0;
-        p.endWord = 1;          // итого 2 слова
-        p.tp = ParamType::Float32;
-        params.push_back(p);
+// Вставка кусочка (до 16 бит) в конкретное слово `words[wordIndex]`
+// начиная с бита `startBit`.
+void insertBitsInWord(QVector<quint16> &words,
+                      int wordIndex,
+                      int startBit,
+                      int bitCount,
+                      quint64 valBits)
+{
+    // Маска на bitCount
+    quint64 mask = (bitCount == 64) ? 0xFFFFFFFFFFFFFFFFULL
+                                    : ((1ULL << bitCount) - 1ULL);
+
+    // Берём младшие bitCount бит из valBits
+    quint16 part = static_cast<quint16>(valBits & mask);
+
+    // Сдвигаем в нужное положение
+    part <<= startBit;
+
+    // Формируем маску очистки в итоговом слове
+    quint16 clearMask = static_cast<quint16>( ~(mask << startBit) );
+
+    words[wordIndex] = (words[wordIndex] & clearMask) | part;
+}
+
+//------------------------------------------------------------------------------
+// Основная функция упаковки
+//------------------------------------------------------------------------------
+QVector<quint16> packParameters(const QList<Param> &params)
+{
+    // 1) Найдём максимальное число слов
+    int maxWordIndex = 0;
+    for (auto &p : params) {
+        if (p.endWord > maxWordIndex) {
+            maxWordIndex = p.endWord;
+        }
     }
 
-    // Пример 2. Два мелких int-параметра, влезают в одно слово (word=2):
+    // 2) Создаём буфер слов, заполняем нулями
+    QVector<quint16> words(maxWordIndex + 1, 0);
+
+    // 3) Перебираем параметры по порядку
+    for (const auto &param : params)
     {
-        // a) 8 бит, занимает биты [0..7] внутри word2
-        Param p;
-        p.value = 5.0;          // int 5 в double виде
-        p.startBit = 0;
-        p.endBit = 7;
-        p.startWord = 2;
-        p.endWord = 2;          // только одно слово
-        p.tp = ParamType::Int;  // условно 32-бит int, но возьмём лишь 8 бит
-        params.push_back(p);
+        // Сколько бит всего занимает параметр
+        int bitCount = param.endBit - param.startBit + 1;
 
-        // b) 7 бит, биты [8..14] в том же word2
-        Param p2;
-        p2.value = 0x3F;        // 0b111111 = 63, но возьмём 7 бит
-        p2.startBit = 8;
-        p2.endBit = 14;
-        p2.startWord = 2;
-        p2.endWord = 2;
-        p2.tp = ParamType::Int;
-        params.push_back(p2);
+        // Сформируем "сырые" 16-битные слова, соответствующие значению параметра
+        QVector<quint16> paramWords;
 
-        // c) 1 бит, бит [15..15] => добивает слово2
-        Param p3;
-        p3.value = 1.0;
-        p3.startBit = 15;
-        p3.endBit = 15;
-        p3.startWord = 2;
-        p3.endWord = 2;
-        p3.tp = ParamType::UInt;
-        params.push_back(p3);
+        if (param.tp == "float")
+        {
+            float fVal = static_cast<float>(param.value);
+            QByteArray arr = floatToBytes(fVal);  // 4 байта
+            paramWords = bytesToWords(arr);       // => 2 слова
+            reverseWords(paramWords);             // word-level swap (2 слова меняем местами)
+        }
+        else if (param.tp == "double")
+        {
+            double dVal = param.value;
+            QByteArray arr = doubleToBytes(dVal); // 8 байт
+            paramWords = bytesToWords(arr);       // => 4 слова
+            reverseWords(paramWords);             // word-level swap (4 слова переворачиваем)
+        }
+        else if (param.tp == "int")
+        {
+            // Считаем, что value содержит целое в виде double (например, 5.0).
+            // Переводим его в signed 64-бит.
+            qint64 ival = static_cast<qint64>(param.value);
+            // Оставляем только нужные bitCount младших бит
+            quint64 mask = (bitCount < 64) ? ((1ULL << bitCount) - 1ULL)
+                                           : 0xFFFFFFFFFFFFFFFFULL;
+            quint64 raw = static_cast<quint64>(ival & mask);
+
+            // Сформируем массив байтов (минимум, чтобы уместить bitCount)
+            int bytesNeeded = (bitCount + 7) / 8; // округление вверх
+            QByteArray arr(bytesNeeded, 0);
+            for (int i = 0; i < bytesNeeded; ++i) {
+                arr[i] = static_cast<char>((raw >> (8 * i)) & 0xFF);
+            }
+            paramWords = bytesToWords(arr);
+            // Если param занимает более 16 бит, можно тоже «перевернуть» слова
+            // (для единообразия с float/double). Обычно, если bitCount > 16, 
+            // вы хотите 2+ слов => перевернём:
+            if (paramWords.size() > 1) {
+                reverseWords(paramWords);
+            }
+        }
+        else if (param.tp == "uint")
+        {
+            // Аналогично, но без знака
+            quint64 uval = static_cast<quint64>(param.value);
+            quint64 mask = (bitCount < 64) ? ((1ULL << bitCount) - 1ULL)
+                                           : 0xFFFFFFFFFFFFFFFFULL;
+            quint64 raw = uval & mask;
+
+            int bytesNeeded = (bitCount + 7) / 8;
+            QByteArray arr(bytesNeeded, 0);
+            for (int i = 0; i < bytesNeeded; ++i) {
+                arr[i] = static_cast<char>((raw >> (8 * i)) & 0xFF);
+            }
+            paramWords = bytesToWords(arr);
+            if (paramWords.size() > 1) {
+                reverseWords(paramWords);
+            }
+        }
+        else
+        {
+            // неизвестный тип - пропускаем или обрабатываем как ошибку
+            continue;
+        }
+
+        // Теперь у нас есть QVector<quint16> paramWords, где:
+        //   - paramWords[0] = младшие 16 бит параметра (уже с учётом «word swap»)
+        //   - paramWords[1] = следующие 16 бит и т.д.
+
+        // Осталось «рассыпать» эти биты по словам [startWord..endWord], битам [startBit..endBit].
+        // С учётом того, что параметры идут строго друг за другом, 
+        // нам нужно просто аккуратно разложить bitCount бит.
+
+        // Упакуем все 16-битные слова paramWords в одно 64-битное число (если bitCount <= 64),
+        // либо можно делать по кускам в цикле. Для наглядности — пример с 64-бит.
+
+        // Если bitCount может быть > 64, нужно будет расширять логику (QVector<quint16> -> 128 бит и т.д.).
+        // Для простоты предположим, что здесь не бывает параметров длиннее 64 бит.
+        quint64 allBits = 0;
+        {
+            // paramWords[0] идут в младшие 16 бит,
+            // paramWords[1] идут в следующие 16 бит и т.д.
+            // В том порядке, в каком сейчас лежат paramWords (уже перевёрнутом).
+            for (int i = 0; i < paramWords.size(); ++i) {
+                quint64 w = static_cast<quint64>(paramWords[i]);
+                allBits |= (w << (16 * i)); 
+            }
+        }
+
+        // Теперь разложим allBits в итоговый буфер words.
+        // Нужно заполнить диапазон слов от startWord до endWord,
+        // и бит от startBit до endBit. Пойдём побитовому циклу:
+        int bitsLeft = bitCount;
+        int currentBitPos = 0;           // сколько бит уже «забрали» из allBits
+        int wIndex = param.startWord;    
+        int bitPosInWord = param.startBit;
+
+        while (bitsLeft > 0 && wIndex <= param.endWord)
+        {
+            int freeBitsInThisWord = 16 - bitPosInWord;
+            int putNow = qMin(freeBitsInThisWord, bitsLeft);
+
+            // Выдёргиваем putNow бит из allBits, начиная с currentBitPos
+            quint64 mask = (1ULL << putNow) - 1ULL;
+            quint64 part = (allBits >> currentBitPos) & mask;
+
+            // Вставляем part в слово words[wIndex], начиная с bitPosInWord
+            insertBitsInWord(words, wIndex, bitPosInWord, putNow, part);
+
+            // Сдвигаемся
+            bitsLeft       -= putNow;
+            currentBitPos  += putNow;
+            bitPosInWord   = 0;         // в следующем слове начинаем с бита 0
+            wIndex++;
+        }
     }
 
-    // Пример 3. Параметр double64, занимает 64 бита (4 слова):
-    {
-        Param p;
-        p.value = 123.456;
-        p.startBit = 0;
-        p.endBit = 63;
-        p.startWord = 3;
-        p.endWord = 6;           // 4 слова подряд: 3,4,5,6
-        p.tp = ParamType::Float64;
-        params.push_back(p);
+    // 4) Выводим результат для отладки
+    for (int i = 0; i < words.size(); ++i) {
+        // Печатаем, например, так: "Word 0: 0x0000", "Word 1: 0x00A3"...
+        QString hexStr = QString("Word %1: 0x%2")
+                .arg(i)
+                .arg(words[i], 4, 16, QChar('0')).toUpper();
+        qDebug() << hexStr;
     }
 
-    // Вызываем сборку
-    QVector<quint16> result = packParamsToWords(params);
-
-    // Здесь result содержит все сформированные 16-битные слова.
-    // В отладке мы уже увидели логи при формировании.
+    // 5) Возвращаем готовый вектор слов
+    return words;
 }
