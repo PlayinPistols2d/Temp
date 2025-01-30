@@ -1,80 +1,98 @@
-#include "ParameterConverter.h"
+#include "HexConverter.h"
 #include <QtEndian>
 #include <QDataStream>
 #include <QDebug>
 
-QVector<QByteArray> ParameterConverter::convertParameters(const QVector<Parameter>& parameters) {
-    QVector<QByteArray> result;
-    QByteArray bufferWord(2, 0); // 1 слово = 2 байта (16 бит)
-    int currentWord = -1;
+QVector<quint16> HexConverter::convertParametersToHex(const QVector<Parameter>& parameters) {
+    QVector<quint16> result;
+    QByteArray buffer;
+    QDataStream stream(&buffer, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::LittleEndian); // Выберите порядок байтов, если необходимо
 
-    for (const auto& param : parameters) {
+    int currentWord = parameters.isEmpty() ? -1 : parameters.first().startWord;
+    QByteArray wordBuffer(2, 0); // 2 байта на слово (16 бит)
+
+    for (int i = 0; i < parameters.size(); ++i) {
+        const Parameter& param = parameters[i];
+
+        int wordCount = param.endWord - param.startWord + 1;
+        QByteArray hexData = convertToHexBytes(param.value, param.type, wordCount);
+
         if (param.startWord == param.endWord) {
-            // Параметр помещается в одно слово
             if (param.startBit == 0 && param.endBit == 15) {
                 // Полное слово
-                QByteArray word = convertToIEEE754(param.value, param.type);
-                result.append(word.left(2)); // Берем первые 2 байта
+                stream.writeRawData(hexData.constData(), 2);
+                result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData())));
             } else {
-                // Частичное слово -> сборка буфера
-                if (currentWord != param.startWord) {
-                    if (currentWord != -1) {
-                        result.append(bufferWord);
+                // Частичное заполнение слова
+                int bitSize = param.endBit - param.startBit + 1;
+                quint16 mask = (1 << bitSize) - 1;
+                quint16 value = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData())) & mask;
+                
+                if (param.startWord != currentWord) {
+                    if (!wordBuffer.isEmpty()) {
+                        result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
                     }
-                    bufferWord.fill(0);
+                    wordBuffer.fill(0);
                     currentWord = param.startWord;
                 }
 
-                // Записываем часть параметра в нужные биты буферного слова
-                quint16 wordValue = qFromBigEndian<quint16>(bufferWord.constData());
-                quint16 paramBits = static_cast<quint16>(param.value) << (15 - param.endBit);
-                wordValue |= paramBits;
-                qToBigEndian(wordValue, bufferWord.data());
+                quint16 oldValue = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData()));
+                oldValue |= (value << param.startBit);
+                qToLittleEndian(oldValue, reinterpret_cast<uchar*>(wordBuffer.data()));
             }
         } else {
             // Параметр занимает несколько слов
-            QByteArray converted = convertToIEEE754(param.value, param.type);
-            int wordsRequired = (param.endWord - param.startWord) + 1;
-
-            for (int i = 0; i < wordsRequired; ++i) {
-                result.append(converted.mid(i * 2, 2)); // Записываем по 2 байта (слово)
+            for (int j = 0; j < hexData.size(); j += 2) {
+                quint16 word = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData() + j));
+                result.append(word);
             }
         }
     }
 
-    if (!bufferWord.isEmpty()) {
-        result.append(bufferWord);
+    // Добавление последнего буферного слова, если есть незаполненные параметры
+    if (!wordBuffer.isEmpty()) {
+        result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
     }
 
-    // Применяем Endianness
-    applyEndianSwap(result, result.size() / 2);
-
-    return result;
+    return applyEndianSwap(result);
 }
 
-QByteArray ParameterConverter::convertToIEEE754(double value, const QString& type) {
-    QByteArray byteArray;
-    QDataStream stream(&byteArray, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::BigEndian);
+QByteArray HexConverter::convertToHexBytes(double value, const QString& type, int wordCount) {
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::LittleEndian);
 
-    if (type == "float") {
-        float floatValue = static_cast<float>(value);
-        stream << floatValue;
-    } else if (type == "double") {
-        stream << value;
-    } else if (type == "int") {
+    if (type == "int") {
         qint32 intValue = static_cast<qint32>(value);
         stream << intValue;
     } else if (type == "uint") {
         quint32 uintValue = static_cast<quint32>(value);
         stream << uintValue;
+    } else if (type == "float") {
+        float floatValue = static_cast<float>(value);
+        stream.writeRawData(reinterpret_cast<const char*>(&floatValue), 4);
+    } else if (type == "double") {
+        stream.writeRawData(reinterpret_cast<const char*>(&value), 8);
     }
 
-    return byteArray;
+    if (data.size() < wordCount * 2) {
+        data.append(QByteArray(wordCount * 2 - data.size(), 0)); // Дополняем нулями
+    }
+
+    return data;
 }
 
-void ParameterConverter::applyEndianSwap(QVector<QByteArray>& words, int wordCount) {
-    for (int i = 0; i < wordCount / 2; ++i) {
-        std::swap(words[i], words[wordCount - 1 - i]);
+QVector<quint16> HexConverter::applyEndianSwap(const QVector<quint16>& words) {
+    QVector<quint16> swappedWords;
+
+    if (words.size() > 1) {
+        for (int i = words.size() - 1; i >= 0; --i) {
+            swappedWords.append(words[i]);
+        }
+    } else {
+        swappedWords = words;
     }
+
+    return swappedWords;
 }
