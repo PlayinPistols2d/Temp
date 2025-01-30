@@ -1,107 +1,80 @@
-#include "pack_parameters.h"
+#include "ParameterConverter.h"
+#include <QtEndian>
+#include <QDataStream>
+#include <QDebug>
 
-// Функция преобразования float в IEEE 754 (32-битный)
-QByteArray floatToBytes(float value)
-{
-    QByteArray arr(4, 0);
-    QDataStream stream(&arr, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::LittleEndian);
-    stream << value;
-    return arr;
-}
+QVector<QByteArray> ParameterConverter::convertParameters(const QVector<Parameter>& parameters) {
+    QVector<QByteArray> result;
+    QByteArray bufferWord(2, 0); // 1 слово = 2 байта (16 бит)
+    int currentWord = -1;
 
-// Функция преобразования double в IEEE 754 (64-битный)
-QByteArray doubleToBytes(double value)
-{
-    QByteArray arr(8, 0);
-    QDataStream stream(&arr, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::LittleEndian);
-    stream << value;
-    return arr;
-}
+    for (const auto& param : parameters) {
+        if (param.startWord == param.endWord) {
+            // Параметр помещается в одно слово
+            if (param.startBit == 0 && param.endBit == 15) {
+                // Полное слово
+                QByteArray word = convertToIEEE754(param.value, param.type);
+                result.append(word.left(2)); // Берем первые 2 байта
+            } else {
+                // Частичное слово -> сборка буфера
+                if (currentWord != param.startWord) {
+                    if (currentWord != -1) {
+                        result.append(bufferWord);
+                    }
+                    bufferWord.fill(0);
+                    currentWord = param.startWord;
+                }
 
-// Преобразование массива байтов в 16-битные слова (Little Endian)
-QVector<quint16> bytesToWords(const QByteArray &bytes)
-{
-    QVector<quint16> words;
-    for (int i = 0; i < bytes.size(); i += 2)
-    {
-        quint16 word = static_cast<quint8>(bytes[i]) | (static_cast<quint8>(bytes[i + 1]) << 8);
-        words.append(word);
-    }
-    return words;
-}
+                // Записываем часть параметра в нужные биты буферного слова
+                quint16 wordValue = qFromBigEndian<quint16>(bufferWord.constData());
+                quint16 paramBits = static_cast<quint16>(param.value) << (15 - param.endBit);
+                wordValue |= paramBits;
+                qToBigEndian(wordValue, bufferWord.data());
+            }
+        } else {
+            // Параметр занимает несколько слов
+            QByteArray converted = convertToIEEE754(param.value, param.type);
+            int wordsRequired = (param.endWord - param.startWord) + 1;
 
-// Разворот порядка слов для Endian-соответствия
-void reverseWords(QVector<quint16> &words)
-{
-    std::reverse(words.begin(), words.end());
-}
-
-// Функция для вставки бит в битовый буфер (битовая маска)
-void insertBitsInBuffer(QVector<quint16> &buffer, int startBit, int bitCount, quint64 value)
-{
-    int wordIndex = startBit / 16;
-    int bitOffset = startBit % 16;
-
-    while (bitCount > 0)
-    {
-        int bitsInThisWord = qMin(16 - bitOffset, bitCount);
-        quint16 mask = (1 << bitsInThisWord) - 1;
-        quint16 part = static_cast<quint16>((value & mask) << bitOffset);
-
-        buffer[wordIndex] |= part;
-        value >>= bitsInThisWord;
-        bitCount -= bitsInThisWord;
-        bitOffset = 0;
-        wordIndex++;
-    }
-}
-
-// Основная функция упаковки параметров
-QVector<quint16> packParameters(const QList<Param> &params)
-{
-    int maxWordIndex = 0;
-    for (const auto &p : params)
-        maxWordIndex = qMax(maxWordIndex, p.endWord);
-
-    QVector<quint16> buffer(maxWordIndex + 1, 0);
-
-    for (const auto &param : params)
-    {
-        int bitCount = param.endBit - param.startBit + 1;
-        if (bitCount <= 0)
-            continue;
-
-        QVector<quint16> paramWords;
-        QByteArray arr;
-
-        if (param.tp == "float")
-            arr = floatToBytes(static_cast<float>(param.value));
-        else if (param.tp == "double")
-            arr = doubleToBytes(param.value);
-        else
-        {
-            quint64 raw = static_cast<quint64>(param.value) & ((1ULL << bitCount) - 1ULL);
-            int bytesNeeded = (bitCount + 7) / 8;
-            arr.resize(bytesNeeded);
-            for (int i = 0; i < bytesNeeded; i++)
-                arr[i] = static_cast<char>((raw >> (8 * i)) & 0xFF);
+            for (int i = 0; i < wordsRequired; ++i) {
+                result.append(converted.mid(i * 2, 2)); // Записываем по 2 байта (слово)
+            }
         }
-
-        paramWords = bytesToWords(arr);
-        if (paramWords.size() > 1)
-            reverseWords(paramWords);
-
-        quint64 allBits = 0;
-        for (int i = 0; i < paramWords.size(); i++)
-            allBits |= (static_cast<quint64>(paramWords[i]) << (16 * i));
-
-        insertBitsInBuffer(buffer, param.startWord * 16 + param.startBit, bitCount, allBits);
     }
 
-    for (int i = 0; i < buffer.size(); i++)
-        qDebug() << QString("Word[%1] = 0x%2").arg(i).arg(buffer[i], 4, 16, QChar('0')).toUpper();
+    if (!bufferWord.isEmpty()) {
+        result.append(bufferWord);
+    }
 
-    return buffer;
+    // Применяем Endianness
+    applyEndianSwap(result, result.size() / 2);
+
+    return result;
+}
+
+QByteArray ParameterConverter::convertToIEEE754(double value, const QString& type) {
+    QByteArray byteArray;
+    QDataStream stream(&byteArray, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+
+    if (type == "float") {
+        float floatValue = static_cast<float>(value);
+        stream << floatValue;
+    } else if (type == "double") {
+        stream << value;
+    } else if (type == "int") {
+        qint32 intValue = static_cast<qint32>(value);
+        stream << intValue;
+    } else if (type == "uint") {
+        quint32 uintValue = static_cast<quint32>(value);
+        stream << uintValue;
+    }
+
+    return byteArray;
+}
+
+void ParameterConverter::applyEndianSwap(QVector<QByteArray>& words, int wordCount) {
+    for (int i = 0; i < wordCount / 2; ++i) {
+        std::swap(words[i], words[wordCount - 1 - i]);
+    }
 }
