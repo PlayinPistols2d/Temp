@@ -7,15 +7,15 @@ QVector<quint16> HexConverter::convertParametersToHex(const QVector<Parameter>& 
     QVector<quint16> result;
     QByteArray buffer;
     QDataStream stream(&buffer, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::LittleEndian); // Установим порядок байтов
+    stream.setByteOrder(QDataStream::LittleEndian);
 
     int currentWord = parameters.isEmpty() ? -1 : parameters.first().startWord;
-    QByteArray wordBuffer(2, 0); // 2 байта (16 бит)
+    quint16 tempWord = 0;  // Буферное слово
 
     for (int i = 0; i < parameters.size(); ++i) {
         const Parameter& param = parameters[i];
 
-        // Проверяем разрыв в словах
+        // Обработка разрывов между словами
         if (param.startWord > currentWord + 1) {
             int gap = param.startWord - (currentWord + 1);
             for (int j = 0; j < gap; ++j) {
@@ -29,25 +29,29 @@ QVector<quint16> HexConverter::convertParametersToHex(const QVector<Parameter>& 
         if (param.startWord == param.endWord) {
             if (param.startBit == 0 && param.endBit == 15) {
                 // Полное слово
-                stream.writeRawData(hexData.constData(), 2);
                 result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData())));
+                tempWord = 0;  // Очистка буфера
             } else {
-                // Частичное заполнение слова
+                // Частичное слово
                 int bitSize = param.endBit - param.startBit + 1;
                 quint16 mask = (1 << bitSize) - 1;
                 quint16 value = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData())) & mask;
-                
-                if (param.startWord != currentWord) {
-                    if (!wordBuffer.isEmpty()) {
-                        result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
+
+                tempWord |= (value << param.startBit);
+
+                // Проверка: есть ли ещё параметры в этом же слове?
+                bool hasMoreParamsInSameWord = false;
+                if (i + 1 < parameters.size()) {
+                    if (parameters[i + 1].startWord == param.startWord) {
+                        hasMoreParamsInSameWord = true;
                     }
-                    wordBuffer.fill(0);
-                    currentWord = param.startWord;
                 }
 
-                quint16 oldValue = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData()));
-                oldValue |= (value << param.startBit);
-                qToLittleEndian(oldValue, reinterpret_cast<uchar*>(wordBuffer.data()));
+                if (!hasMoreParamsInSameWord) {
+                    // Если это последний параметр в слове — дополняем нулями и записываем
+                    result.append(tempWord);
+                    tempWord = 0;
+                }
             }
         } else {
             // Параметр занимает несколько слов
@@ -60,9 +64,9 @@ QVector<quint16> HexConverter::convertParametersToHex(const QVector<Parameter>& 
         currentWord = param.endWord;
     }
 
-    // Добавление последнего буферного слова, если есть незаполненные параметры
-    if (!wordBuffer.isEmpty()) {
-        result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
+    // Если в буфере осталось неполное слово, дополняем его нулями
+    if (tempWord != 0) {
+        result.append(tempWord);
     }
 
     return applyEndianSwap(result);
@@ -87,7 +91,7 @@ QByteArray HexConverter::convertToHexBytes(double value, const QString& type, in
     }
 
     if (data.size() < wordCount * 2) {
-        data.append(QByteArray(wordCount * 2 - data.size(), 0)); // Дополняем нулями
+        data.append(QByteArray(wordCount * 2 - data.size(), 0));  // Дополняем нулями
     }
 
     return data;
