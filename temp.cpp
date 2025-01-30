@@ -9,16 +9,18 @@ QVector<quint16> HexConverter::ConvertParametersToHex(const QVector<Parameter>& 
     QDataStream stream(&buffer, QIODevice::WriteOnly);
     stream.setByteOrder(QDataStream::LittleEndian); // Используем младший порядок байтов
 
-    int currentWord = -1;  // Текущий индекс слова
+    int lastEndWord = -1;  // Хранит конечное слово предыдущего параметра
     QByteArray wordBuffer(2, 0); // Буфер для незаполненного слова (2 байта = 16 бит)
 
     for (int i = 0; i < parameters.size(); ++i) {
         const Parameter& param = parameters[i];
 
-        // Проверяем разрыв в словах (если param.GetStartWord() > currentWord + 1)
-        while (currentWord != -1 && param.GetStartWord() > currentWord + 1) {
-            result.append(0);  // Добавляем пустое слово
-            currentWord++;
+        // Если есть разрыв между параметрами (текущий startWord > предыдущего endWord + 1)
+        if (lastEndWord != -1 && param.GetStartWord() > lastEndWord + 1) {
+            int gap = param.GetStartWord() - lastEndWord - 1;
+            for (int j = 0; j < gap; ++j) {
+                result.append(0);  // Заполняем пропущенные слова нулями
+            }
         }
 
         int wordCount = param.GetEndWord() - param.GetStartWord() + 1;
@@ -36,31 +38,21 @@ QVector<quint16> HexConverter::ConvertParametersToHex(const QVector<Parameter>& 
                 quint16 mask = (1 << bitSize) - 1;
                 quint16 value = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData())) & mask;
 
-                if (param.GetStartWord() != currentWord) {
-                    if (!wordBuffer.isEmpty() && currentWord != -1) {
-                        result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
-                    }
-                    wordBuffer.fill(0);
-                    currentWord = param.GetStartWord();
-                }
-
                 quint16 oldValue = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData()));
                 oldValue |= (value << param.GetStartBit());
                 qToLittleEndian(oldValue, reinterpret_cast<uchar*>(wordBuffer.data()));
+
+                result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
             }
         } else {
             // Параметр занимает несколько слов
             for (int j = 0; j < hexData.size(); j += 2) {
                 quint16 word = qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(hexData.constData() + j));
                 result.append(word);
-                currentWord = param.GetStartWord() + j / 2;
             }
         }
-    }
 
-    // Добавление последнего буферного слова
-    if (!wordBuffer.isEmpty() && currentWord != -1) {
-        result.append(qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(wordBuffer.constData())));
+        lastEndWord = param.GetEndWord(); // Запоминаем конец текущего параметра
     }
 
     return ApplyEndianSwap(result);
